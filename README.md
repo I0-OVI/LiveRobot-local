@@ -12,11 +12,13 @@ If you want to quickly try it out, just clone this repository, install the depen
 |Streaming text generation                      | ✅  |
 |Personality Setting (system and dynamic prompt)| ✅  |
 |Tools like weather searching                   | 🚧  |
-|RAG (memory)                                   | 🚧  | 
+|Momery (RAG, buffer ....)                      | 🚧  | 
+|Emotion system                                 | 🚧  |
+|Interaction of mouse or user's action          | 🚧  |
 
 Notes
-- 🚧 means this feature needs to be optimized or planned to do.
-- ✅ represents the current feature can work properly.
+- ✅ means a feature that is currently available and working properly.
+- 🚧 indicates a feature that is planned, under development, or requires further optimization.
 
 ## Acknowledgements
 
