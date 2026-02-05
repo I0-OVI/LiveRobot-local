@@ -35,5 +35,19 @@ In this project, we use the default Live2D character. The Live2D SDK is encapsul
 -TapBody
 --0：shake body
 ```
-Next, import the PyQt5 library to visualize the Live2D character. Each animation has a different duration, and the Live2D rendering is managed within the state machine. Locks are used to control the current stage, ensuring smooth transitions. It is important to note that the **animation lock and state lock are managed separately**.
+Next, import the `PyQt5` library to visualize the Live2D character. Each animation has a different duration, and the Live2D rendering is managed within the state machine. Locks are used to control the current stage, ensuring smooth transitions. It is important to note that the **animation lock and state lock are managed separately**.
 
+
+
+### LLM Text Generation
+
+Since I am very poor, I use open-source large language models (such as Qwen) instead of commercial APIs like ChatGPT or Gemini. These models also support streaming text generation. 
+
+Streaming generation allows the system to start producing responses while the user is still speaking. For example, when the user says "Hello, how are you", the system can begin generating text as soon as it receives "Hello, how", rather than waiting for the complete sentence. This approach significantly reduces response latency and creates a more natural conversational experience. Using only a local LLM without streaming would not achieve the same level of real-time interaction.
+
+
+### User Interface
+🚧
+**Input**
+
+**Output**
