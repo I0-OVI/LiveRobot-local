@@ -7,12 +7,12 @@ If you want to quickly try it out, just clone this repository, install the depen
 |-----------------------------------------------|------|
 |Live2D Character                               | ✅  |
 |Speech recognition (Google API)                | ✅  |
-|Test-to-Speech (online edge-tts)               | ✅  |
-|AI communication(qwen model)                   | ✅  |
+|Test-to-Speech (Online Edge-tts)               | ✅  |
+|AI communication(Qwen model)                   | ✅  |
 |Streaming text generation                      | ✅  |
-|Personality Setting (system and dynamic prompt)| ✅  |
+|Personality Setting (System and Dynamic prompt)| ✅  |
 |Tools like weather searching                   | 🚧  |
-|Momery (RAG, buffer ....)                      | 🚧  | 
+|Memory (RAG, buffer ....)                      | 🚧  | 
 |Emotion system                                 | 🚧  |
 |Interaction of mouse or user's action          | 🚧  |
 

@@ -47,7 +47,29 @@ Streaming generation allows the system to start producing responses while the us
 
 
 ### User Interface
-🚧
-**Input**
 
-**Output**
+#### Input
+The system supports both speech recognition (Google API) and text input.  
+In practice, the latency difference between local LLM text generation and speech streaming input is minimal. The time required for text input and speech streaming is approximately the same. 
+
+This program would adjust the language mode based on input language. If the user input with English, the response will be English. If the user then input with Chinese, the model will response with Chinese.
+
+#### Output
+**Text to speech Edge-tts(online)**
+Although there is a 0.5 to 1 second latency after text generation, this delay is within an acceptable range for the current stage of the project. Therefore, further optimization is postponed until other major components are completed.
+
+The main challenge is **reducing the audible gap** between two adjacent sentences. A common approach is to place sentences into a queue and synthesize them one by one. However, this design introduces unavoidable silence between sentences, since the entire pipeline consists of: text input → synthesis → audio playback.
+
+For example, without optimization, the sentence  
+"Hello, how are you?"  
+may be rendered as:  
+"Hello ...... how are you"
+
+Two strategies can be applied to alleviate this issue:
+1. Pipelining: generate the next sentence while the current sentence is being played.  
+2. Parallel synthesis: synthesize multiple sentences concurrently.
+
+In practice, parallel synthesis provides better performance than pure pipelining, which still produces a small but noticeable gap. Therefore, this program enables two concurrent synthesis threads. To avoid playback order confusion, each synthesis task is indexed so that audio is played strictly in sequence.
+
+**Subtitle**
+We use the `PyQt5` library to visualize the generated text. According to the length of each sentence, the subtitle frame automatically inserts line breaks or adjusts font size. Both English and Chinese are supported.
