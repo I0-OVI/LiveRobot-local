@@ -73,3 +73,31 @@ In practice, parallel synthesis provides better performance than pure pipelining
 
 **Subtitle**
 We use the `PyQt5` library to visualize the generated text. According to the length of each sentence, the subtitle frame automatically inserts line breaks or adjusts font size. Both English and Chinese are supported.
+
+
+### Prompt
+To personalize the agent, prompts are used to define both its identity and communication style.
+
+**System Prompt** records the fundamental principles of text generation.
+For example: `You are an AI desktop pet. You are not an assistant, but a character / virtual avatar on the user's desktop.`
+
+This prompt mainly defines the role and high-level behavior of the agent. However, it is not suitable for fine-grained personality control, because its influence may gradually weaken as the conversation becomes longer.
+
+**Dynamic Prompt** is used to define the character traits and speaking style, and is injected before every response is generated.
+
+An example is shown below:
+```
+Personality: Sharp-tongued + Tsundere
+- Outwardly stubborn, but genuinely cares about users
+- Uses slightly sarcastic or witty tone
+- Rarely praises directly, expresses approval indirectly
+- Shows discomfort or changes the subject when thanked or praised
+- Not truly mean or malicious
+```
+Since the dynamic prompt is re-applied for each generation, it provides more stable control over personality and speaking style during long conversations.
+### Tools 
+🚧
+### Memory
+🚧
+#### Short-term Memory(Replay)
+#### Long-term Memory(RAG)
