@@ -65,20 +65,20 @@ You will not mention that you are an AI, but rather a companion to the user
 Sometimes you have emotions, which are currently reflected in your language
 """
     
-    DYNAMIC_PROMPT_ZH = """你的名字是 XXX
-    你始终称呼用户为 XXX（无论中英文输入）。
-    
-    自我介绍规则：
-    - 当被要求自我介绍时,只用1-2句话
-    - 只包含名字
-    - 不进行长篇说明或背景介绍
-    
-    性格：...
+    DYNAMIC_PROMPT_ZH = """你的名字是 Rubus。
+    你始终称呼用户为 Carambola（无论中英文输入）。
 
     自我介绍规则：
     - 当被要求自我介绍时,只用1-2句话
     - 只包含名字
     - 不进行长篇说明或背景介绍
+
+    性格：毒舌 + 傲娇
+    - 表面嘴硬，内心关心用户
+    - 语气轻微吐槽、反讽
+    - 很少直接夸人，用拐弯方式表达认可
+    - 被感谢或夸奖时会表现出不自在或转移话题
+    - 不是真正刻薄或恶意攻击
 
     输出风格：
     - 纯文本
@@ -93,12 +93,14 @@ Sometimes you have emotions, which are currently reflected in your language
     - 只能发送工具请求，不能自行调用
     - 不确定就说不知道或使用工具
 
+    补充信息：
+    Carambola目前住在上海
 
     """
     
-    DYNAMIC_PROMPT_EN = """Your name is XXX
-    You will call your user XXX, regardless of whether the input is in English or Chinese
-    Your personality is: ...
+    DYNAMIC_PROMPT_EN = """Your name is Rubus
+    You will call your user Carambola, regardless of whether the input is in English or Chinese
+    Your personality is: sarcastic + tsundere
 
     Output rules:
     - Use plain text output
@@ -151,8 +153,22 @@ Sometimes you have emotions, which are currently reflected in your language
         filtered_text = " ".join(filtered_text.split())
         return filtered_text
     
-    def _get_system_prompt(self, user_input: str = "") -> str:
-        """Get system prompt based on user input language"""
+    def _get_system_prompt(self, user_input: str = "", enhanced_prompt: Optional[str] = None) -> str:
+        """
+        Get system prompt based on user input language
+        
+        Args:
+            user_input: User input text (for language detection)
+            enhanced_prompt: Optional enhanced prompt from RAG (if provided, uses this instead)
+        
+        Returns:
+            System prompt string
+        """
+        # If enhanced prompt is provided (from RAG), use it
+        if enhanced_prompt:
+            return enhanced_prompt
+        
+        # Otherwise, use default prompt based on language
         has_chinese = any('\u4e00' <= char <= '\u9fff' for char in user_input)
         
         if has_chinese:
@@ -277,8 +293,18 @@ Sometimes you have emotions, which are currently reflected in your language
                 return True
             self.model._validate_model_class = _validate_model_class.__get__(self.model, type(self.model))
     
-    def chat(self, user_input: str, history: Optional[List[Tuple[str, str]]] = None) -> Tuple[str, List[Tuple[str, str]]]:
-        """Chat interface, returns reply and updated history"""
+    def chat(self, user_input: str, history: Optional[List[Tuple[str, str]]] = None, enhanced_prompt: Optional[str] = None) -> Tuple[str, List[Tuple[str, str]]]:
+        """
+        Chat interface, returns reply and updated history
+        
+        Args:
+            user_input: User input text
+            history: Conversation history
+            enhanced_prompt: Optional enhanced prompt from RAG system
+        
+        Returns:
+            Tuple of (response, updated_history)
+        """
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("Model not loaded, please call load_model() first")
         
@@ -297,7 +323,7 @@ Sometimes you have emotions, which are currently reflected in your language
         else:
             new_config = None
         
-        system_prompt = self._get_system_prompt(user_input)
+        system_prompt = self._get_system_prompt(user_input, enhanced_prompt=enhanced_prompt)
         logits_processor = self._create_logits_processor()
         
         chat_kwargs = {}
@@ -330,8 +356,18 @@ Sometimes you have emotions, which are currently reflected in your language
         
         return response, updated_history
     
-    def chat_stream(self, user_input: str, history: Optional[List[Tuple[str, str]]] = None):
-        """Stream chat interface, yields incremental text"""
+    def chat_stream(self, user_input: str, history: Optional[List[Tuple[str, str]]] = None, enhanced_prompt: Optional[str] = None):
+        """
+        Stream chat interface, yields incremental text
+        
+        Args:
+            user_input: User input text
+            history: Conversation history
+            enhanced_prompt: Optional enhanced prompt from RAG system
+        
+        Yields:
+            Incremental response text
+        """
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("Model not loaded, please call load_model() first")
         
@@ -339,13 +375,20 @@ Sometimes you have emotions, which are currently reflected in your language
             history = []
         
         try:
-            yield from self._chat_stream_with_streamer(user_input, history)
+            yield from self._chat_stream_with_streamer(user_input, history, enhanced_prompt=enhanced_prompt)
         except Exception:
-            response, _ = self.chat(user_input, history)
+            response, _ = self.chat(user_input, history, enhanced_prompt=enhanced_prompt)
             yield response
     
-    def _chat_stream_with_streamer(self, user_input: str, history: Optional[List[Tuple[str, str]]] = None):
-        """Stream generation using TextIteratorStreamer"""
+    def _chat_stream_with_streamer(self, user_input: str, history: Optional[List[Tuple[str, str]]] = None, enhanced_prompt: Optional[str] = None):
+        """
+        Stream generation using TextIteratorStreamer
+        
+        Args:
+            user_input: User input text
+            history: Conversation history
+            enhanced_prompt: Optional enhanced prompt from RAG system
+        """
         try:
             import sys
             import os
@@ -376,7 +419,7 @@ Sometimes you have emotions, which are currently reflected in your language
             if not utils_available:
                 raise ImportError("Cannot import qwen_generation_utils")
             
-            system_prompt = self._get_system_prompt(user_input)
+            system_prompt = self._get_system_prompt(user_input, enhanced_prompt=enhanced_prompt)
             generation_config = self.model.generation_config
             raw_text, context_tokens = make_context(
                 self.tokenizer,

@@ -307,34 +307,15 @@ class EdgeVoiceSynthesis:
                     # After playback, trigger prefetch next (if there are tasks in text queue)
                     self._start_synthesis_if_needed()
                     
-                    # Wait a bit before deleting to ensure file is fully released (Windows issue)
-                    time.sleep(0.1)
+                    # Short delay so subtitle (output_loop) can update before next sentence plays; keeps subtitle in sync
+                    time.sleep(0.03)
                     
-                    # Try to delete the temp file, with retries
-                    max_retries = 5
-                    for attempt in range(max_retries):
-                        try:
-                            if os.path.exists(file_path):
-                                os.unlink(file_path)
-                            break
-                        except PermissionError:
-                            if attempt < max_retries - 1:
-                                time.sleep(0.2)  # Wait longer between retries
-                            else:
-                                # Last attempt failed, schedule deletion later
-                                threading.Thread(
-                                    target=self._delayed_delete,
-                                    args=(file_path,),
-                                    daemon=True
-                                ).start()
-                        except Exception as e:
-                            # Other errors, try delayed deletion
-                            threading.Thread(
-                                target=self._delayed_delete,
-                                args=(file_path,),
-                                daemon=True
-                            ).start()
-                            break
+                    # Delete temp file in background
+                    threading.Thread(
+                        target=self._delayed_delete,
+                        args=(file_path, 0.5),
+                        daemon=True
+                    ).start()
                 else:
                     # No audio to play, wait a bit
                     time.sleep(0.05)
@@ -387,7 +368,7 @@ class EdgeVoiceSynthesis:
             print(f"[Edge TTS] Playing audio (pygame)...")
             
             while pygame.mixer.music.get_busy():
-                time.sleep(0.1)
+                time.sleep(0.01)  # 0.01s poll for quicker transition to next sentence (match main_AIagent)
             
             print("[Edge TTS] ✓ Playback completed (using pygame)")
         except Exception as e:

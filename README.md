@@ -12,7 +12,8 @@ If you want to quickly try it out, just clone this repository, install the depen
 |Streaming text generation                      | ✅  |
 |Personality Setting (System and Dynamic prompt)| ✅  |
 |Tools like weather searching                   | 🚧  |
-|Memory (RAG, buffer ....)                      | 🚧  | 
+|Short-term Memory (Replay)                     | 🚧  | 
+|Long-term Memory (RAG)                         | 🚧  | 
 |Emotion system                                 | 🚧  |
 |Interaction of mouse or user's action          | 🚧  |
 

@@ -123,7 +123,7 @@ class AgentState(Enum):
 
 
 class AIAgent:
-    """AI Agent main class"""
+    """AI Agent 主类"""
     
     def __init__(self, 
                  use_streaming: bool = True,
@@ -131,7 +131,20 @@ class AIAgent:
                  model_cache_dir: Optional[str] = None,
                  language: str = "zh-CN",
                  use_gui: bool = True,
-                 model_path: Optional[str] = None):
+                 model_path: Optional[str] = None,
+                 use_rag: bool = True,
+                 # Replay configuration
+                 replay_token_budget: int = 2000,
+                 replay_persist_sessions: bool = True,
+                 # RAG configuration
+                 rag_top_k: int = 3,
+                 rag_similarity_threshold: float = 0.7,
+                 rag_summary_interval: int = 10,
+                 rag_importance_base_threshold: float = 0.5,
+                 rag_importance_max_memories: int = 1000,
+                 rag_merge_similarity_threshold: float = 0.95,
+                 rag_allow_no_memories: bool = True,
+                 memory_persist_path: Optional[str] = None):
         """
         Initialize AI Agent
         
@@ -142,6 +155,17 @@ class AIAgent:
             language: Default recognition language (zh-CN or en-US)
             use_gui: Whether to use GUI interface, default True
             model_path: Live2D model path (optional)
+            use_rag: Whether to enable memory system, default True
+            replay_token_budget: Token budget for Replay system, default 2000
+            replay_persist_sessions: Whether to persist Replay sessions, default True
+            rag_top_k: Number of top memories to retrieve, default 3
+            rag_similarity_threshold: Minimum similarity score for retrieval, default 0.7
+            rag_summary_interval: Turns between summaries, default 10
+            rag_importance_base_threshold: Base importance threshold, default 0.5
+            rag_importance_max_memories: Max memories for adaptive threshold, default 1000
+            rag_merge_similarity_threshold: Similarity threshold for merging, default 0.95
+            rag_allow_no_memories: Allow no valid memories in RAG, default True
+            memory_persist_path: Path to persist memory database, default "./memory_db"
         """
         self.use_streaming = use_streaming
         self.language = language
@@ -170,41 +194,41 @@ class AIAgent:
         }
         fish_language = lang_map.get(language, "zh")
         
-        # ===== Fish Speech section (commented out, temporarily using Edge TTS) =====
-        # # 1. Priority: Try Fish Speech local direct mode (lowest latency)
+        # ===== Fish Speech 部分（已注释，暂时使用 Edge TTS） =====
+        # # 1. 优先尝试使用 Fish Speech 本地直接模式（最低延迟）
         # if FISH_SPEECH_AVAILABLE:
         #     try:
-        #         print("[Init] Attempting to initialize Fish Speech local direct mode (priority, lowest latency)...")
+        #         print("[初始化] 尝试初始化 Fish Speech 本地直接模式（优先，最低延迟）...")
         #         self.voice_synthesis = FishSpeechVoiceSynthesis(
         #             language=fish_language,
-        #             use_api=False  # Use local direct mode
+        #             use_api=False  # 使用本地直接模式
         #         )
         #         self.voice_synthesis.start()
-        #         print("[Init] ✓ Fish Speech local direct mode initialized")
+        #         print("[初始化] ✓ Fish Speech 本地直接模式已初始化")
         #     except Exception as e:
-        #         print(f"[Init] ⚠ Fish Speech local direct mode initialization failed: {e}")
-        #         print("[Init] Will try API mode...")
+        #         print(f"[初始化] ⚠ Fish Speech 本地直接模式初始化失败: {e}")
+        #         print("[初始化] 将尝试 API 模式...")
         #         import traceback
         #         traceback.print_exc()
         #         self.voice_synthesis = None
         #
-        # # 2. If local direct mode fails, try Fish Speech API mode
+        # # 2. 如果本地直接模式失败，尝试 Fish Speech API 模式
         # if self.voice_synthesis is None and FISH_SPEECH_AVAILABLE:
         #     try:
-        #         print("[Init] Attempting to initialize Fish Speech API mode (fallback)...")
+        #         print("[初始化] 尝试初始化 Fish Speech API 模式（回退方案）...")
         #         self.voice_synthesis = FishSpeechVoiceSynthesis(
         #             language=fish_language,
-        #             use_api=True  # Use API mode
+        #             use_api=True  # 使用 API 模式
         #         )
         #         self.voice_synthesis.start()
-        #         print("[Init] ✓ Fish Speech API mode initialized")
+        #         print("[初始化] ✓ Fish Speech API 模式已初始化")
         #     except Exception as e:
-        #         print(f"[Init] ⚠ Fish Speech API mode initialization failed: {e}")
-        #         print("[Init] Will try Edge TTS...")
+        #         print(f"[初始化] ⚠ Fish Speech API 模式初始化失败: {e}")
+        #         print("[初始化] 将尝试 Edge TTS...")
         #         import traceback
         #         traceback.print_exc()
         #         self.voice_synthesis = None
-        # ===== Fish Speech section end =====
+        # ===== Fish Speech 部分结束 =====
         
         # 1. Use Edge TTS directly (Fish Speech is commented out)
         if EDGE_TTS_AVAILABLE:
@@ -286,8 +310,62 @@ class AIAgent:
         # Voice input dialog
         self.voice_dialog = None
         
-        # Conversation history
+        # Conversation history (kept for backward compatibility)
         self.conversation_history = []
+        
+        # Memory Coordinator (Replay + RAG)
+        self.use_rag = use_rag
+        self.memory_coordinator = None
+        self.replay_memory = None  # Fallback: Replay-only when RAG deps missing
+        
+        if self.use_rag:
+            current_dir = get_current_dir()
+            if memory_persist_path is None:
+                memory_persist_path = os.path.join(current_dir, "memory_db")
+            replay_persist_path = os.path.join(current_dir, "replay_db")
+            
+            try:
+                from ai.memory import MemoryCoordinator
+                
+                # Initialize full memory coordinator (Replay + RAG)
+                self.memory_coordinator = MemoryCoordinator(
+                    replay_token_budget=replay_token_budget,
+                    replay_persist_sessions=replay_persist_sessions,
+                    replay_persist_path=replay_persist_path,
+                    rag_persist_directory=memory_persist_path,
+                    rag_top_k=rag_top_k,
+                    rag_similarity_threshold=rag_similarity_threshold,
+                    rag_summary_interval=rag_summary_interval,
+                    rag_importance_base_threshold=rag_importance_base_threshold,
+                    rag_importance_max_memories=rag_importance_max_memories,
+                    rag_merge_similarity_threshold=rag_merge_similarity_threshold,
+                    rag_allow_no_memories=rag_allow_no_memories,
+                    rag_use_llm_trigger=False,
+                    text_generator=None
+                )
+                
+                print(f"[Init] ✓ Memory Coordinator initialized (Replay + RAG)")
+                print(f"[Init] Replay path: {os.path.abspath(replay_persist_path)}, RAG path: {os.path.abspath(memory_persist_path)}")
+                print(f"[Init] Replay token budget: {replay_token_budget}")
+                print(f"[Init] RAG top_k: {rag_top_k}, similarity_threshold: {rag_similarity_threshold}")
+                print(f"[Init] RAG summary interval: {rag_summary_interval}")
+            except (ImportError, Exception) as e:
+                print(f"[Init] ⚠ Full memory (RAG) not available: {e}")
+                print("[Init] Replay-only mode: saving sessions to replay_db (install sentence-transformers for RAG)")
+                # Fallback: Replay only (no sentence-transformers/chromadb needed)
+                try:
+                    from ai.memory.replay_memory import ReplayMemory  # Direct import to avoid loading RAG deps
+                    self.replay_memory = ReplayMemory(
+                        token_budget=replay_token_budget,
+                        persist_sessions=replay_persist_sessions,
+                        persist_path=replay_persist_path
+                    )
+                    print(f"[Init] ✓ Replay-only memory initialized at {os.path.abspath(replay_persist_path)}")
+                except Exception as replay_e:
+                    print(f"[Init] ⚠ Replay fallback failed: {replay_e}")
+                    self.use_rag = False
+        else:
+            print("[Init] Memory system disabled")
         
         # Thread control
         self.running = False
@@ -389,14 +467,14 @@ class AIAgent:
         # If target state is same as current, force restart animation
         if target_state == self.behavior_manager.current_state:
             self.behavior_manager._need_restart_animation = True
-            # Reset state duration to ensure animation restarts
+            # 重置状态持续时间，确保动画重新开始
             self.behavior_manager._reset_state_duration()
             return
         
-        # Force immediate switch: directly call _transition_to_state
-        # Clear all potentially interfering states first
-        self.behavior_manager.target_state = None  # Clear target state to avoid conflicts
-        self.behavior_manager.state_queue.clear()  # Ensure queue is empty
+        # 强制立即切换：直接调用 _transition_to_state
+        # 先清除所有可能干扰的状态
+        self.behavior_manager.target_state = None  # 清除目标状态，避免冲突
+        self.behavior_manager.state_queue.clear()  # 确保队列为空
         
         # Directly call _transition_to_state to switch state
         # This sets current_state and calls _reset_state_duration
@@ -553,16 +631,40 @@ class AIAgent:
             # Switch to talk state and output result
             self._safe_set_state(AgentState.TALKING, "talk")
             
-            # Output tool result
+            # 输出工具结果
             if self.voice_synthesis:
                 self.voice_synthesis.synthesize_and_play(tool_result)
             
-            # Update subtitle
+            # 更新字幕
             if self.subtitle_window:
                 self.subtitle_window.set_subtitle(tool_result)
             
-            # Add to conversation history
+            # 添加到对话历史
             self.conversation_history.append((user_input, tool_result))
+            
+            # Save to memory (Replay or Replay+RAG)
+            if self.memory_coordinator:
+                try:
+                    clean_user_input = self.text_generator.tool_manager.remove_tool_markers(user_input)
+                    clean_tool_result = self.text_generator.tool_manager.remove_tool_markers(tool_result)
+                    self.memory_coordinator.save_conversation(
+                        user_input=clean_user_input,
+                        assistant_response=clean_tool_result,
+                        importance=0.6,
+                        use_llm_evaluation=False,
+                        async_save=True
+                    )
+                    print(f"[Memory] Saved tool call to Replay (RAG in background)")
+                except Exception as e:
+                    print(f"[Memory] Error saving tool call: {e}")
+            elif self.replay_memory:
+                try:
+                    clean_user_input = self.text_generator.tool_manager.remove_tool_markers(user_input)
+                    clean_tool_result = self.text_generator.tool_manager.remove_tool_markers(tool_result)
+                    self.replay_memory.add_turn(clean_user_input, clean_tool_result)
+                    print(f"[Memory] Saved tool call to Replay (Replay-only mode)")
+                except Exception as e:
+                    print(f"[Memory] Error saving tool call: {e}")
             
             # Switch back to idle state
             self._safe_set_state(AgentState.IDLE, "idle")
@@ -593,93 +695,156 @@ class AIAgent:
         """
         def stream_generation():
             try:
-                # Ensure generation starts in thinking state
+                # 确保在 thinking 状态下开始生成
                 
-                # Check if model is available
+                # 检查模型是否可用
                 if self.text_generator.model is None:
                     self._safe_set_state(AgentState.IDLE, "idle")
                     raise RuntimeError("Model not loaded")
                 
                 full_response = ""
-                first_chunk = True  # Flag to mark if this is the first chunk
+                first_chunk = True  # 标记是否是第一个片段
                 
-                # Reset streaming buffer for voice synthesis
+                # 重置语音合成的流式缓冲区
                 if self.voice_synthesis:
                     self.voice_synthesis.reset_streaming_buffer()
-                    # Detect language and set voice synthesis language (using first chunk)
+                    # 检测语言并设置语音合成语言（使用第一个片段）
                     if first_chunk:
-                        # Language will be set when first chunk arrives
+                        # 会在第一个片段时设置语言
                         pass
                 
+                # Get context from memory (Replay + RAG or Replay-only)
+                replay_history = []
+                enhanced_prompt = None
+                if self.memory_coordinator:
+                    try:
+                        replay_history, rag_memories, enhanced_prompt, rag_used = self.memory_coordinator.get_context_for_generation(user_input)
+                        self.conversation_history = replay_history
+                        if enhanced_prompt:
+                            system_prompt = self.text_generator._get_system_prompt(user_input)
+                            enhanced_prompt = system_prompt + enhanced_prompt
+                            print(f"[Memory] Using {len(replay_history)} replay turns and {len(rag_memories)} RAG memories")
+                        else:
+                            print(f"[Memory] Using {len(replay_history)} replay turns" + (", RAG triggered but no memories" if rag_used else ", RAG not triggered"))
+                    except Exception as e:
+                        print(f"[Memory] Error getting context: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        enhanced_prompt = None
+                elif self.replay_memory:
+                    replay_history = self.replay_memory.get_replay_history()
+                    self.conversation_history = replay_history
+                    print(f"[Memory] Using {len(replay_history)} replay turns (Replay-only mode)")
+                
+                # Start output thread early (before model inference) to avoid blocking when first token arrives
+                self._start_text_output()
+                
                 try:
-                    for response in self.text_generator.chat_stream(user_input, self.conversation_history):
+                    for response in self.text_generator.chat_stream(user_input, self.conversation_history, enhanced_prompt=enhanced_prompt):
                         full_response = response
                         
-                        # If this is the first chunk, switch to talk state and start output
+                        # 如果是第一个片段，切换到 talk 状态（output thread 已提前启动）
                         if first_chunk:
                             self._safe_set_state(AgentState.TALKING, "talk")
-                            self._start_text_output()
                             first_chunk = False
                             
-                            # Set voice synthesis language
+                            # 设置语音合成语言
                             if self.voice_synthesis and response:
                                 detected_lang = self.detect_language(response)
                                 if detected_lang != self.voice_synthesis.language:
                                     self.voice_synthesis.set_language(detected_lang)
                         
-                        # Put streaming chunks into queue in real-time for subtitle synchronization
+                        # 将流式片段实时放入队列，用于字幕同步更新
                         if response and len(response.strip()) > 0:
-                            # Remove tool markers before output
+                            # 移除工具标记后再输出
                             clean_response = self.text_generator.tool_manager.remove_tool_markers(response)
                             self.text_output_queue.put(("partial", clean_response))
                             
-                            # Streaming voice synthesis: start voice synthesis during streaming inference
-                            # Trigger voice synthesis check every time incremental text arrives
+                            # 流式语音合成：在流式推理过程中就开始语音合成
+                            # 每次增量文本到达时都触发语音合成检查
                             if self.voice_synthesis:
-                                # Pass current complete text and is_final flag (using cleaned text)
+                                # 传递当前完整文本和是否结束标志（使用清理后的文本）
                                 self.voice_synthesis.synthesize_and_play_streaming(clean_response, is_final=False)
                 except AttributeError as e:
-                    # Streaming inference failed (usually transformers_stream_generator compatibility issue)
+                    # 流式推理失败（通常是 transformers_stream_generator 兼容性问题）
                     if '_validate_model_class' in str(e):
-                        # Fallback to non-streaming inference
-                        response, updated_history = self.text_generator.chat(user_input, self.conversation_history)
+                        # 回退到非流式推理
+                        if self.memory_coordinator:
+                            try:
+                                replay_history, rag_memories, enhanced_prompt, rag_used = self.memory_coordinator.get_context_for_generation(user_input)
+                                self.conversation_history = replay_history
+                                if enhanced_prompt:
+                                    system_prompt = self.text_generator._get_system_prompt(user_input)
+                                    enhanced_prompt = system_prompt + enhanced_prompt
+                            except Exception as e:
+                                print(f"[Memory] Error getting context: {e}")
+                                enhanced_prompt = None
+                        elif self.replay_memory:
+                            self.conversation_history = self.replay_memory.get_replay_history()
+                        
+                        response, updated_history = self.text_generator.chat(user_input, self.conversation_history, enhanced_prompt=enhanced_prompt)
                         self.conversation_history = updated_history
                         full_response = response
-                        # If not yet switched to talk state during non-streaming fallback, switch now
+                        # 非流式回退时，切换状态（output thread 已提前启动）
                         if first_chunk:
                             self._safe_set_state(AgentState.TALKING, "talk")
-                            self._start_text_output()
                             first_chunk = False
-                        # Put complete text into queue
+                        # 将完整文本放入队列
                         self.text_output_queue.put(("complete", full_response))
                     else:
                         raise
                 
-                # Check generation result
+                # 检查生成结果
                 if not full_response or len(full_response.strip()) == 0:
                     raise RuntimeError("Generation result is empty")
                 
-                # Update conversation history
+                # 更新对话历史（保持向后兼容）
                 if self.conversation_history:
                     self.conversation_history[-1] = (user_input, full_response)
                 else:
                     self.conversation_history.append((user_input, full_response))
                 
-                # If not yet switched to talk state (non-streaming fallback case), switch now
-                # Note: In non-streaming fallback, text has already been put into queue in exception handler
+                # Save to memory (Replay or Replay+RAG)
+                if self.memory_coordinator:
+                    try:
+                        clean_user_input = self.text_generator.tool_manager.remove_tool_markers(user_input)
+                        clean_full_response = self.text_generator.tool_manager.remove_tool_markers(full_response)
+                        self.memory_coordinator.save_conversation(
+                            user_input=clean_user_input,
+                            assistant_response=clean_full_response,
+                            importance=None,
+                            use_llm_evaluation=True,
+                            async_save=True
+                        )
+                        print(f"[Memory] Saved conversation to Replay (RAG in background)")
+                    except Exception as e:
+                        print(f"[Memory] Error saving conversation: {e}")
+                        import traceback
+                        traceback.print_exc()
+                elif self.replay_memory:
+                    try:
+                        clean_user_input = self.text_generator.tool_manager.remove_tool_markers(user_input)
+                        clean_full_response = self.text_generator.tool_manager.remove_tool_markers(full_response)
+                        self.replay_memory.add_turn(clean_user_input, clean_full_response)
+                        print(f"[Memory] Saved conversation to Replay (Replay-only mode)")
+                    except Exception as e:
+                        print(f"[Memory] Error saving conversation: {e}")
+                
+                # 如果还没有切换到 talk 状态（非流式回退情况），现在切换
+                # 注意：非流式回退时，文本已经在异常处理中放入队列了
                 if first_chunk:
-                    # Non-streaming fallback case: text already in queue from exception handler
+                    # 非流式回退情况：文本已在异常处理中放入队列
                     self._safe_set_state(AgentState.TALKING, "talk")
                     self._start_text_output()
                 else:
-                    # Normal streaming completion: put complete result into queue (remove tool markers)
+                    # 正常流式完成：将完整结果放入队列（移除工具标记）
                     clean_full_response = self.text_generator.tool_manager.remove_tool_markers(full_response)
                     self.text_output_queue.put(("complete", clean_full_response))
                 
-                # Streaming inference complete, send final text to voice module
-                # Note: Already synthesized in chunks during streaming, only need to handle remaining parts here
+                # 流式推理完成，发送最终文本给语音模块
+                # 注意：在流式过程中已经分段合成了，这里只需要处理剩余部分
                 if full_response and len(full_response.strip()) > 0 and self.voice_synthesis:
-                    # Send final text, mark as is_final=True to ensure all remaining text is synthesized
+                    # 发送最终文本，标记为 is_final=True，确保所有剩余文本都被合成
                     clean_full_response = self.text_generator.tool_manager.remove_tool_markers(full_response)
                     self.voice_synthesis.synthesize_and_play_streaming(clean_full_response, is_final=True)
                 
@@ -687,10 +852,10 @@ class AIAgent:
                 import traceback
                 traceback.print_exc()
                 self.text_output_queue.put(("error", str(e)))
-                # Return to idle on error
+                # 错误时回到 idle
                 self._safe_set_state(AgentState.IDLE, "idle")
         
-        # Generate in background thread
+        # 在后台线程中生成
         generation_thread = threading.Thread(target=stream_generation, daemon=True)
         generation_thread.start()
     
@@ -703,40 +868,91 @@ class AIAgent:
         """
         def generation():
             try:
-                # Ensure generation happens in thinking state
+                # 确保在 thinking 状态下生成
                 
-                # Check if model is available
+                # 检查模型是否可用
                 if self.text_generator.model is None:
                     raise RuntimeError("Model not loaded")
                 
-                response, updated_history = self.text_generator.chat(user_input, self.conversation_history)
+                # Get context from memory (Replay + RAG or Replay-only)
+                replay_history = []
+                enhanced_prompt = None
+                if self.memory_coordinator:
+                    try:
+                        replay_history, rag_memories, enhanced_prompt, rag_used = self.memory_coordinator.get_context_for_generation(user_input)
+                        self.conversation_history = replay_history
+                        if enhanced_prompt:
+                            system_prompt = self.text_generator._get_system_prompt(user_input)
+                            enhanced_prompt = system_prompt + enhanced_prompt
+                            print(f"[Memory] Using {len(replay_history)} replay turns and {len(rag_memories)} RAG memories")
+                        else:
+                            print(f"[Memory] Using {len(replay_history)} replay turns" + (", RAG triggered but no memories" if rag_used else ", RAG not triggered"))
+                    except Exception as e:
+                        print(f"[Memory] Error getting context: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        enhanced_prompt = None
+                elif self.replay_memory:
+                    replay_history = self.replay_memory.get_replay_history()
+                    self.conversation_history = replay_history
+                    print(f"[Memory] Using {len(replay_history)} replay turns (Replay-only mode)")
+                
+                # Start output thread early (before model inference) to avoid blocking when result arrives
+                self._start_text_output()
+                
+                response, updated_history = self.text_generator.chat(user_input, self.conversation_history, enhanced_prompt=enhanced_prompt)
                 
                 self.conversation_history = updated_history
                 
-                # Check generation result
+                # 检查生成结果
                 if not response or len(response.strip()) == 0:
                     raise RuntimeError("Generation result is empty")
                 
-                # After generation completes, switch to talk state and start output
-                self._safe_set_state(AgentState.TALKING, "talk")
-                self._start_text_output()
+                # Save to memory (Replay or Replay+RAG)
+                if self.memory_coordinator:
+                    try:
+                        clean_user_input = self.text_generator.tool_manager.remove_tool_markers(user_input)
+                        clean_response = self.text_generator.tool_manager.remove_tool_markers(response)
+                        self.memory_coordinator.save_conversation(
+                            user_input=clean_user_input,
+                            assistant_response=clean_response,
+                            importance=None,
+                            use_llm_evaluation=True,
+                            async_save=True
+                        )
+                        print(f"[Memory] Saved conversation to Replay (RAG in background)")
+                    except Exception as e:
+                        print(f"[Memory] Error saving conversation: {e}")
+                        import traceback
+                        traceback.print_exc()
+                elif self.replay_memory:
+                    try:
+                        clean_user_input = self.text_generator.tool_manager.remove_tool_markers(user_input)
+                        clean_response = self.text_generator.tool_manager.remove_tool_markers(response)
+                        self.replay_memory.add_turn(clean_user_input, clean_response)
+                        print(f"[Memory] Saved conversation to Replay (Replay-only mode)")
+                    except Exception as e:
+                        print(f"[Memory] Error saving conversation: {e}")
                 
-                # Remove tool markers before output
+                # 生成完成后，切换到 talk 状态（output thread 已提前启动）
+                self._safe_set_state(AgentState.TALKING, "talk")
+                
+                # 移除工具标记后再输出
                 clean_response = self.text_generator.tool_manager.remove_tool_markers(response)
                 
-                # Put complete text into queue
+                # 将完整文本放入队列
                 self.text_output_queue.put(("complete", clean_response))
                 
-                # Immediately send to voice module for synthesis after text generation completes
-                # This allows voice synthesis to start while text is displayed, reducing latency
+                # 文字生成完成后，立即发送给语音模块进行语音合成
+                # 这样可以在文字显示的同时开始语音合成，减少延迟
                 if clean_response and len(clean_response.strip()) > 0:
                     if self.voice_synthesis:
-                        # Detect language and set voice synthesis language (using cleaned text)
+                        # 检测语言并设置语音合成语言（使用清理后的文本）
                         detected_lang = self.detect_language(clean_response)
                         if detected_lang != self.voice_synthesis.language:
                             self.voice_synthesis.set_language(detected_lang)
                         
-                        # Asynchronously synthesize and play voice (non-blocking for text output, using cleaned text)
+                        # 异步合成并播放语音（不阻塞文本输出，使用清理后的文本）
                         print(f"[Voice Output] Text generation completed, starting voice synthesis: '{clean_response[:50]}...'")
                         self.voice_synthesis.synthesize_and_play(clean_response)
                     else:
@@ -746,10 +962,10 @@ class AIAgent:
                 import traceback
                 traceback.print_exc()
                 self.text_output_queue.put(("error", str(e)))
-                # Return to idle on error
+                # 错误时回到 idle
                 self._safe_set_state(AgentState.IDLE, "idle")
         
-        # Generate in background thread
+        # 在后台线程中生成
         generation_thread = threading.Thread(target=generation, daemon=True)
         generation_thread.start()
     
@@ -763,11 +979,11 @@ class AIAgent:
             # Check if thread is still running
             if self.output_thread and self.output_thread.is_alive():
                 print(f"[Output] ⚠ Output thread still running: {self.output_thread.name} (ID: {self.output_thread.ident})")
-            # Force finish previous output
+            # 强制完成之前的输出
             self._finish_output()
-            # Wait a short time for thread to exit (don't block too long)
+            # 等待一小段时间让线程退出（不阻塞太久）
             if self.output_thread and self.output_thread.is_alive():
-                for i in range(20):  # Wait up to 2 seconds (20 * 0.1 seconds), increased wait time
+                for i in range(20):  # 最多等待2秒（20 * 0.1秒），增加等待时间
                     if not self.output_thread.is_alive():
                         print(f"[Output] ✓ Old thread exited (waited {i * 0.1:.1f} seconds)")
                         break
@@ -778,10 +994,10 @@ class AIAgent:
         # Ensure previous output thread has ended (double check)
         if self.output_thread and self.output_thread.is_alive():
             print(f"[Output] ⚠ Warning: Found residual output thread, forcing reset state: {self.output_thread.name} (ID: {self.output_thread.ident})")
-            # Force reset state to let old thread exit
+            # 强制重置状态，让旧线程退出
             old_thread = self.output_thread
             self.is_outputting = False
-            # Wait longer to ensure thread exits
+            # 等待更长时间，确保线程退出
             for i in range(10):  # Wait 1 second
                 if not old_thread.is_alive():
                     print(f"[Output] ✓ Residual thread exited (waited {i * 0.1:.1f} seconds)")
@@ -789,12 +1005,12 @@ class AIAgent:
                 time.sleep(0.1)
             if old_thread.is_alive():
                 print(f"[Output] ⚠ Warning: Residual thread still not exited: {old_thread.name} (ID: {old_thread.ident})")
-            # Set old thread reference to None to avoid interference
+            # 将旧线程引用设为 None，避免干扰
             self.output_thread = None
         
-        # Completely clear queue to avoid accumulating unprocessed messages (may remain after multiple rounds)
+        # 彻底清空队列，避免累积未处理的消息（多轮对话后可能残留）
         cleared_count = 0
-        max_clear_attempts = 100  # Try clearing up to 100 times to avoid infinite loop
+        max_clear_attempts = 100  # 最多尝试清空100次，避免无限循环
         clear_attempts = 0
         while not self.text_output_queue.empty() and clear_attempts < max_clear_attempts:
             try:
@@ -808,77 +1024,77 @@ class AIAgent:
         else:
             print(f"[Output] Queue is empty, ready to start new output")
         
-        # Reset state
+        # 重置状态
         self.is_outputting = True
-        self.current_output_text = ""  # Reset current output text
+        self.current_output_text = ""  # 重置当前输出文本
         
-        # Note: No longer clearing subtitle, directly replace with new content
-        # This avoids crash issues when clearing subtitle
+        # 注意：不再清除字幕，而是直接替换为新内容
+        # 这样可以避免清除字幕时的崩溃问题
         
         def output_loop():
             thread_id = threading.current_thread().ident
             thread_name = threading.current_thread().name
             print(f"[Output Thread] Thread started: {thread_name} (ID: {thread_id})")
-            output_timeout = 0  # Output timeout counter
-            max_timeout = 300  # Maximum wait time (30 seconds, 0.1 seconds * 300)
+            output_timeout = 0  # 输出超时计数器
+            max_timeout = 300  # 最大等待时间（30秒，0.1秒 * 300）
             
             try:
                 while self.is_outputting:
                     try:
-                        # Get text from queue (non-blocking)
+                        # 从队列获取文本（短超时减少首字延迟）
                         try:
-                            msg_type, text = self.text_output_queue.get(timeout=0.1)
-                            output_timeout = 0  # Reset timeout counter
+                            msg_type, text = self.text_output_queue.get(timeout=0.03)
+                            output_timeout = 0  # 重置超时计数器
                             
                             if msg_type == "partial":
-                                # Stream output incremental text (append mode, don't clear old subtitle)
+                                # 流式输出增量文本（追加模式，不清除旧字幕）
                                 self.current_output_text = text
                                 if self.subtitle_window:
-                                    # Use signal-slot mechanism, automatically executes in main thread, no manual event handling needed
+                                    # 使用信号槽机制，自动在主线程中执行，无需手动处理事件
                                     self.subtitle_window.set_subtitle(text, append=True)
                                 print(f"\r[Output] {text}", end="", flush=True)
                             
                             elif msg_type == "complete":
-                                # Output complete
+                                # 输出完成
                                 self.current_output_text = text
-                                # Ensure subtitle displays final complete text (use replace mode, don't clear)
+                                # 确保字幕显示最终完整文本（使用替换模式，不清除）
                                 if self.subtitle_window:
-                                    # Use signal-slot mechanism, automatically executes in main thread, no manual event handling needed
-                                    self.subtitle_window.set_subtitle(text, append=False)  # Use replace mode
+                                    # 使用信号槽机制，自动在主线程中执行，无需手动处理事件
+                                    self.subtitle_window.set_subtitle(text, append=False)  # 使用替换模式
                                 print(f"{text}")
                                 
-                                # Note: Voice synthesis has already been triggered immediately after text generation completes (in _generate_response_streaming or _generate_response_non_streaming)
-                                # Don't trigger again here to avoid duplicate synthesis
+                                # 注意：语音合成已在文字生成完成后立即触发（在_generate_response_streaming或_generate_response_non_streaming中）
+                                # 这里不再重复触发，避免重复合成
                                 
                                 print(f"[Output Thread] Received complete message, preparing to exit: {thread_name} (ID: {thread_id})")
                                 self._finish_output()
-                                return  # Ensure exit loop
+                                return  # 确保退出循环
                             
                             elif msg_type == "error":
                                 print(f"[Output Thread] Received error message, preparing to exit: {thread_name} (ID: {thread_id})")
                                 self._finish_output()
-                                return  # Ensure exit loop
+                                return  # 确保退出循环
                             
                         except:
-                            # Queue is empty, continue waiting
+                            # 队列为空，继续等待
                             output_timeout += 1
                             if output_timeout >= max_timeout:
                                 # Timeout, force finish output
                                 print(f"[Output Thread] Timeout, forcing exit: {thread_name} (ID: {thread_id})")
                                 self._finish_output()
                                 return
-                            time.sleep(0.05)
+                            time.sleep(0.02)  # 20ms poll for lower latency
                             
                     except Exception as e:
                         print(f"[Output Thread] Exception, preparing to exit: {thread_name} (ID: {thread_id}), error: {e}")
                         import traceback
                         traceback.print_exc()
                         self._finish_output()
-                        return  # Ensure exit loop
+                        return  # 确保退出循环
             finally:
                 print(f"[Output Thread] Thread exited: {thread_name} (ID: {thread_id})")
         
-        # Create and start output thread (use unique name to avoid conflicts)
+        # 创建并启动输出线程（使用唯一名称避免冲突）
         thread_name = f"output_loop_{threading.current_thread().ident}_{time.time()}"
         self.output_thread = threading.Thread(target=output_loop, daemon=True, name=thread_name)
         self.output_thread.start()
@@ -890,12 +1106,12 @@ class AIAgent:
         Workflow: talk -> idle
         """
         if not self.is_outputting:
-            # If already completed, avoid duplicate calls
-            print(f"[Finish Output] ⚠ Output already completed, skipping duplicate call")
+            # 如果已经完成，避免重复调用
+            print(f"[完成输出] ⚠ 输出已完成，跳过重复调用")
             return
         
         
-        # Clear queue to ensure no residual messages (may accumulate after multiple rounds)
+        # 清空队列，确保没有残留消息（多轮对话后可能累积）
         queue_size = 0
         while not self.text_output_queue.empty():
             try:
@@ -904,21 +1120,21 @@ class AIAgent:
             except:
                 break
         if queue_size > 0:
-            print(f"[Finish Output] Cleared {queue_size} residual messages from queue")
+            print(f"[完成输出] 清空了 {queue_size} 个队列中的残留消息")
         
-        # Reset state
+        # 重置状态
         self.is_outputting = False
         self.current_output_text = ""
         
-        # Ensure switch to idle state (force immediate switch, don't wait for animation to complete)
-        # Workflow: talk -> idle
+        # 确保切换到 idle 状态（强制立即切换，不等待动画完成）
+        # 工作流：talk -> idle
         
-        # First set agent_state to IDLE
+        # 先设置 agent_state 为 IDLE
         self.agent_state = AgentState.IDLE
         
-        # Force state switch directly in main thread (not through QTimer to avoid delay)
+        # 直接在主线程中强制切换状态（不通过QTimer，避免延迟）
         if self.app and QTimer:
-            # Use QTimer.singleShot to ensure execution in main thread
+            # 使用 QTimer.singleShot 确保在主线程中执行
             def do_force_switch():
                 # Ensure behavior_manager also switches to idle
                 self._force_immediate_state("idle")
@@ -928,7 +1144,7 @@ class AIAgent:
                     self.behavior_manager._reset_state_duration()
                     self.behavior_manager._need_restart_animation = True
             QTimer.singleShot(0, do_force_switch)
-            # Force process events to ensure callback executes immediately
+            # 强制处理事件，确保回调立即执行
             self.app.processEvents()
         else:
             # If no GUI, call directly
@@ -957,29 +1173,29 @@ class AIAgent:
         
         while self.running and not self.stop_listening_event.is_set():
             try:
-                # If currently not in IDLE or LISTENING state, wait for state to recover
+                # 如果当前不在 IDLE 或 LISTENING 状态，等待状态恢复
                 if self.agent_state not in [AgentState.IDLE, AgentState.LISTENING]:
                     while self.agent_state != AgentState.IDLE and self.running:
                         time.sleep(0.1)
                     if not self.running:
                         break
                 
-                # Set to listening state
+                # 设置为 listening 状态
                 self.agent_state = AgentState.LISTENING
                 
-                # Listen once for voice
+                # 监听一次语音
                 result = self.voice_recognition.listen_once(
-                    timeout=5.0,  # 5 second timeout
-                    phrase_time_limit=10.0  # Maximum 10 seconds of speech
+                    timeout=5.0,  # 5秒超时
+                    phrase_time_limit=10.0  # 最长10秒语音
                 )
                 
                 if result.is_success:
                     # Recognition successful, switch to thinking state
                     self._safe_set_state(AgentState.THINKING, "thinking")
                     
-                    # If streaming inference is enabled, start generation in thinking state
+                    # 如果启用流式推理，在 thinking 状态下开始生成
                     if self.use_streaming:
-                        # Start streaming generation in background thread
+                        # 在后台线程中开始流式生成
                         print(f"[Listening Loop] Using streaming inference, preparing to generate")
                         print(f"[Listening Loop] Recognized text: '{result.text}'")
                         def start_streaming():
@@ -997,7 +1213,7 @@ class AIAgent:
                     print("[Listening] No speech detected, continuing to listen...")
                     continue
                 else:
-                    # Recognition failed, return to idle
+                    # 识别失败，回到 idle
                     self._on_voice_error(result)
                 
                 # Wait for state to return to IDLE before continuing
@@ -1018,16 +1234,16 @@ class AIAgent:
             return
         
         try:
-            # Ensure only one QApplication instance
+            # 确保只有一个 QApplication 实例
             if not QApplication.instance():
                 self.app = QApplication(sys.argv)
             else:
                 self.app = QApplication.instance()
             
-            # Create Live2D window
+            # 创建 Live2D 窗口
             if self.renderer and LIVE2D_AVAILABLE and Live2DWidget is not None:
                 try:
-                    # Check if model path exists
+                    # 检查模型路径是否存在
                     if not self.renderer.model_path:
                         print("[GUI] Warning: Live2D model path not set, attempting to re-detect...")
                         self.renderer._find_model_path()
@@ -1219,7 +1435,7 @@ class AIAgent:
             self.behavior_manager.update(0.1)
             
             
-            # Render current state
+            # 渲染当前状态
             if self.renderer:
                 current_state = self.behavior_manager.get_current_state()
                 # Enhanced state synchronization: ensure agent_state and behavior_manager.current_state are consistent
@@ -1427,6 +1643,11 @@ class AIAgent:
             
             self.text_generator.load_model()
             print("[Init] Model loading completed")
+            
+            # Set text generator to memory coordinator if available
+            if self.memory_coordinator:
+                self.memory_coordinator.set_text_generator(self.text_generator)
+                print("[Init] ✓ Text generator set to memory coordinator")
         except Exception as e:
             print(f"[Init] Model loading failed: {e}")
             print("Please ensure model is downloaded, or check network connection")
@@ -1503,6 +1724,20 @@ class AIAgent:
         print("\n[Stop] Stopping AI Agent...")
         self.running = False
         self.stop_listening_event.set()
+        
+        # Persist memory on stop
+        if self.memory_coordinator:
+            try:
+                self.memory_coordinator.persist()
+                print("[Stop] Memory coordinator persisted (Replay + RAG)")
+            except Exception as e:
+                print(f"[Stop] Error persisting memory coordinator: {e}")
+        elif self.replay_memory:
+            try:
+                self.replay_memory._save_session()
+                print("[Stop] Replay session persisted")
+            except Exception as e:
+                print(f"[Stop] Error persisting replay: {e}")
         
         # Stop voice synthesis
         if self.voice_synthesis:
