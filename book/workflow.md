@@ -97,7 +97,12 @@ Personality: Sharp-tongued + Tsundere
 Since the dynamic prompt is re-applied for each generation, it provides more stable control over personality and speaking style during long conversations.
 ### Tools 
 🚧
+
 ### Memory
 🚧
 #### Short-term Memory(Replay)
+When using AI assistants such as ChatGPT, the model reviews recent conversation history when generating new responses. For example, when you ask a follow-up question, the system implicitly reviews the latest dialogue to maintain coherence. This mechanism is commonly referred to as replay.
+
+Replay is relatively straightforward to implement: it involves storing recent conversation turns and feeding them back into the model as context for the next generation. However, it is constrained by the model’s context window. Therefore, only a limited number of recent interactions can be retained, which distinguishes short-term memory (replay) from long-term memory systems.
+
 #### Long-term Memory(RAG)

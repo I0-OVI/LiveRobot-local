@@ -21,6 +21,9 @@ Notes
 - ✅ means a feature that is currently available and working properly.
 - 🚧 indicates a feature that is planned, under development, or requires further optimization.
 
+## Limitations
+This subject is supported by open weights model. Even if we implement different prompt and add the memory, the answer is still stiff meaning differ from the normal speech. Perhaps the better model or having post-training could relieve this.
+
 ## Acknowledgements
 
 This project is inspired by Neuro-sama and AkagawaTsurunaki's video on bilibili.
