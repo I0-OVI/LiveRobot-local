@@ -22,7 +22,7 @@ Notes
 - 🚧 indicates a feature that is planned, under development, or requires further optimization.
 
 ## Limitations
-This subject is supported by open weights model. Even if we implement different prompt and add the memory, the answer is still stiff meaning differ from the normal speech. Perhaps the better model or having post-training could relieve this.
+This subject is supported by open weights model. Even if we implement different prompt and add the memory, the answer is still stiff meaning differ from the normal speech. Perhaps the better model or having training could relieve this.
 
 ## Acknowledgements
 
