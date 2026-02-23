@@ -71,7 +71,7 @@ agent = AIAgent(use_rag=False)
 
 ### Storage Locations
 
-- **Replay Memory** (session history): `{Reorganize}/utils/replay_db/` — JSON files per session
+- **Replay Memory** (sliding window): `{Reorganize}/utils/replay_db/replay.json` — Single JSON, max N turns (default 50)
 - **RAG Memory** (long-term): `{Reorganize}/utils/memory_db/` — ChromaDB vector store
 
 ### Using the Viewer Script
@@ -92,7 +92,7 @@ python -m ai.memory.view_memories
 
 ### Manual Viewing
 
-1. **Replay (JSON)**: Open `utils/replay_db/session_*.json` in a text editor
+1. **Replay (JSON)**: Open `utils/replay_db/replay.json` in a text editor
 2. **RAG (ChromaDB)**: Use the viewer script above, or connect via ChromaDB API
 
 ## How It Works

@@ -21,6 +21,7 @@ class MemoryCoordinator:
         replay_token_budget: int = 2000,
         replay_persist_sessions: bool = True,
         replay_persist_path: str = "./replay_db",
+        replay_max_turns: int = 50,
         rag_persist_directory: str = "./memory_db",
         rag_collection_name: str = "conversation_memories",
         rag_embedder_model: Optional[str] = None,
@@ -41,6 +42,7 @@ class MemoryCoordinator:
             replay_token_budget: Token budget for Replay system
             replay_persist_sessions: Whether to persist Replay sessions
             replay_persist_path: Path for Replay persistence
+            replay_max_turns: Max turns to retain; oldest dropped when exceeded (sliding window)
             rag_persist_directory: Directory for RAG persistence
             rag_collection_name: ChromaDB collection name
             rag_embedder_model: Embedder model name
@@ -58,7 +60,8 @@ class MemoryCoordinator:
         self.replay = ReplayMemory(
             token_budget=replay_token_budget,
             persist_sessions=replay_persist_sessions,
-            persist_path=replay_persist_path
+            persist_path=replay_persist_path,
+            max_turns=replay_max_turns
         )
         
         # Initialize RAG system
@@ -349,7 +352,7 @@ class MemoryCoordinator:
     
     def persist(self):
         """Persist both systems"""
-        self.replay._save_session()
+        self.replay._save()
         self.rag.persist()
     
     def set_text_generator(self, text_generator):

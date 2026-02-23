@@ -16,51 +16,37 @@ from utils.path_config import get_current_dir
 
 
 def view_replay_sessions(replay_path: str):
-    """View Replay session JSON files"""
+    """View Replay from single replay.json (sliding window)"""
     print("\n" + "=" * 60)
-    print("Replay Memory (Session History)")
+    print("Replay Memory (Sliding Window)")
     print("=" * 60)
     print(f"Path: {replay_path}")
     
-    if not os.path.exists(replay_path):
-        print("  [No replay_db directory found]")
+    replay_file = os.path.join(replay_path, "replay.json")
+    if not os.path.exists(replay_file):
+        print("  [No replay.json found]")
         return
     
-    session_files = [
-        f for f in os.listdir(replay_path)
-        if f.endswith('.json') and f.startswith('session_')
-    ]
-    session_files.sort(key=lambda f: os.path.getmtime(os.path.join(replay_path, f)), reverse=True)
-    
-    if not session_files:
-        print("  [No session files found]")
-        return
-    
-    print(f"  Found {len(session_files)} session(s)\n")
-    
-    for i, fname in enumerate(session_files[:10], 1):  # Show latest 10
-        fpath = os.path.join(replay_path, fname)
-        try:
-            with open(fpath, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            session_id = data.get("session_id", fname)
-            turns = data.get("turns", [])
-            total_tokens = data.get("total_tokens", 0)
-            created = data.get("created_at", "?")
-            
-            print(f"--- Session {i}: {session_id} ---")
-            print(f"  Created: {created}")
-            print(f"  Turns: {len(turns)}, Tokens: {total_tokens}")
-            for j, turn in enumerate(turns[:5], 1):  # Show first 5 turns
-                user = turn.get("user_input", "")[:80]
-                resp = turn.get("assistant_response", "")[:80]
-                print(f"  [{j}] User: {user}...")
-                print(f"      Assistant: {resp}...")
-            if len(turns) > 5:
-                print(f"  ... and {len(turns) - 5} more turns")
-            print()
-        except Exception as e:
-            print(f"  [Error reading {fname}: {e}]\n")
+    try:
+        with open(replay_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        turns = data.get("turns", [])
+        total_tokens = data.get("total_tokens", 0)
+        max_turns = data.get("max_turns", "?")
+        updated = data.get("updated_at", "?")
+        
+        print(f"  Turns: {len(turns)} / max {max_turns}, Tokens: {total_tokens}")
+        print(f"  Updated: {updated}\n")
+        
+        for j, turn in enumerate(turns[:10], 1):  # Show first 10 turns
+            user = turn.get("user_input", "")[:80]
+            resp = turn.get("assistant_response", "")[:80]
+            print(f"  [{j}] User: {user}...")
+            print(f"      Assistant: {resp}...")
+        if len(turns) > 10:
+            print(f"  ... and {len(turns) - 10} more turns")
+    except Exception as e:
+        print(f"  [Error reading replay.json: {e}]")
 
 
 def view_rag_memories(memory_path: str):
@@ -123,7 +109,7 @@ def main():
     view_rag_memories(memory_path)
     
     print("\n" + "=" * 60)
-    print("Tip: Replay = recent session history; RAG = long-term important memories")
+    print("Tip: Replay = sliding window (replay.json); RAG = long-term vector store")
     print("=" * 60 + "\n")
 
 

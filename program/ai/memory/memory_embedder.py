@@ -38,17 +38,36 @@ class MemoryEmbedder:
         
         print(f"[Memory] Loading embedding model: {self.model_name}")
         try:
-            self.model = SentenceTransformer(self.model_name, device=self.device)
-            print(f"[Memory] ✓ Embedding model loaded successfully")
+            # Prefer local cache to avoid hitting HuggingFace (avoids timeout without VPN)
+            try:
+                self.model = SentenceTransformer(
+                    self.model_name,
+                    device=self.device,
+                    local_files_only=True
+                )
+                print(f"[Memory] ✓ Embedding model loaded from local cache")
+            except (OSError, ValueError, Exception):
+                self.model = SentenceTransformer(self.model_name, device=self.device)
+                print(f"[Memory] ✓ Embedding model loaded (first-time download completed)")
         except Exception as e:
             print(f"[Memory] ⚠ Failed to load {self.model_name}, trying fallback...")
-            # Fallback to default model
             if self.model_name != self.DEFAULT_MODEL:
                 self.model_name = self.DEFAULT_MODEL
-                self.model = SentenceTransformer(self.model_name, device=self.device)
-                print(f"[Memory] ✓ Fallback model loaded: {self.DEFAULT_MODEL}")
+                try:
+                    self.model = SentenceTransformer(
+                        self.model_name,
+                        device=self.device,
+                        local_files_only=True
+                    )
+                    print(f"[Memory] ✓ Fallback model loaded from local cache: {self.DEFAULT_MODEL}")
+                except (OSError, ValueError, Exception):
+                    self.model = SentenceTransformer(self.model_name, device=self.device)
+                    print(f"[Memory] ✓ Fallback model loaded: {self.DEFAULT_MODEL}")
             else:
-                raise RuntimeError(f"Failed to load embedding model: {e}")
+                raise RuntimeError(
+                    f"Failed to load embedding model: {e}. "
+                    "If first-time download times out, set HF_ENDPOINT (e.g. https://hf-mirror.com) and retry."
+                )
         
         # Cache for embeddings (optional, can be enabled for performance)
         self._cache: dict = {}

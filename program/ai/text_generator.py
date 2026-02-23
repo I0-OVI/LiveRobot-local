@@ -16,6 +16,7 @@ from transformers import (
 )
 from threading import Thread
 from .tool_manager import ToolManager
+from utils.setup_loader import load_setup, parse_forbidden_words_list
 
 
 class ForbiddenWordsLogitsProcessor(LogitsProcessor):
@@ -33,80 +34,8 @@ class ForbiddenWordsLogitsProcessor(LogitsProcessor):
 
 
 class QwenTextGenerator:
-    """Qwen 7B 4bit quantized model text generator"""
-    
-    FORBIDDEN_WORDS_ZH = [
-        "作为一个", "作为一名", "AI", "人工智能", "语言模型",
-        "很高兴帮助你", "我没有情感", "我没有个人经历",
-        "提供帮助和信息", "您", "助手", "机器人",
-    ]
-    
-    FORBIDDEN_WORDS_EN = [
-        "as a", "as an", "AI", "artificial intelligence", "language model",
-        "glad to help", "happy to help", "pleased to help",
-        "I don't have emotions", "I have no emotions", "I don't have feelings",
-        "I have no personal experiences", "I don't have personal experiences",
-        "provide help and information", "I'm here to help", "I'm an AI",
-        "I am an AI", "assistant", "assist",
-    ]
-    
-    SYSTEM_PROMPT_BASE_ZH = """你是一个AI桌宠
-你不是一个助手 而是一个用户桌面上的角色/虚拟形象
-你的max_token是80 所以请在限制中把话讲清楚
-你不会提及自己是一个AI 而是一个用户的伙伴
-有时候会有些情绪 目前体现在语言中
+    """Qwen 7B 4bit quantized model text generator. Prompts and forbidden words are loaded from setup.txt."""
 
-"""
-    
-    SYSTEM_PROMPT_BASE_EN = """You are an AI desktop pet
-You are not an assistant, but a character/virtual avatar on the user's desktop
-Your max_token is 80, so please make your point clear within this limit
-You will not mention that you are an AI, but rather a companion to the user
-Sometimes you have emotions, which are currently reflected in your language
-"""
-    
-    DYNAMIC_PROMPT_ZH = """你的名字是 XXX。
-    你始终称呼用户为 XXX（无论中英文输入）。
-
-    自我介绍规则：
-    - 当被要求自我介绍时,只用1-2句话
-    - 只包含名字
-    - 不进行长篇说明或背景介绍
-
-    输出风格：
-    - 纯文本
-    - 非结构化
-    - 日常聊天语气
-    - 不使用 Markdown 符号
-
-    工具规则：
-    - 时间 → [TOOL:GET_TIME]
-    - 天气 → [TOOL:GET_WEATHER] 城市:城市名
-    - 汇率 → [TOOL:GET_EXCHANGE_RATE] 货币:币种对
-    - 只能发送工具请求，不能自行调用
-    - 不确定就说不知道或使用工具
-
-
-
-    """
-    
-    DYNAMIC_PROMPT_EN = """Your name is XXX
-    You will call your user XXX, regardless of whether the input is in English or Chinese
-
-    Output rules:
-    - Use plain text output
-    - Unstructured format
-    - Natural like daily chat
-    - Do not use markdown formatting (such as # * ``` _ ` symbols)
-            
-    Tool usage rules:
-    - If the user asks about time, use [TOOL:GET_TIME] to request the current time
-    - If the user asks about weather, use [TOOL:GET_WEATHER] city:city_name to request weather information
-    - If the user asks about exchange rates, use [TOOL:GET_EXCHANGE_RATE] currency:currency_pair to request exchange rate information
-    - Important: You can only send tool call requests, you cannot call APIs yourself
-    - Do not fabricate information. If you don't know, use tools to request, or simply say you don't know
-    """
-    
     def __init__(self, model_name: str = "Qwen/Qwen-7B-Chat", cache_dir: Optional[str] = None):
         """
         Initialize Qwen text generator
@@ -124,7 +53,16 @@ Sometimes you have emotions, which are currently reflected in your language
         
         self._forbidden_token_ids: Optional[Set[int]] = None
         self.tool_manager = ToolManager()
-        
+
+        # Load system prompt, role and forbidden words from setup.txt (minimal fallbacks if section missing)
+        setup = load_setup()
+        self.SYSTEM_PROMPT_BASE_ZH = setup.get("SYSTEM_PROMPT_ZH") or "你是一个AI桌宠。\n"
+        self.SYSTEM_PROMPT_BASE_EN = setup.get("SYSTEM_PROMPT_EN") or "You are an AI desktop pet.\n"
+        self.DYNAMIC_PROMPT_ZH = setup.get("ROLE_ZH") or ""
+        self.DYNAMIC_PROMPT_EN = setup.get("ROLE_EN") or ""
+        self.FORBIDDEN_WORDS_ZH = parse_forbidden_words_list(setup["FORBIDDEN_WORDS_ZH"]) if setup.get("FORBIDDEN_WORDS_ZH") else []
+        self.FORBIDDEN_WORDS_EN = parse_forbidden_words_list(setup["FORBIDDEN_WORDS_EN"]) if setup.get("FORBIDDEN_WORDS_EN") else []
+
         if self.use_quantization:
             self.quantization_config = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -227,31 +165,55 @@ Sometimes you have emotions, which are currently reflected in your language
         """Reset forbidden token ID cache"""
         self._forbidden_token_ids = None
     
+    def _get_model_cache_path(self) -> Optional[str]:
+        """Get the model-specific cache path (e.g. cache_dir/models--Qwen--Qwen-7B-Chat)."""
+        if not self.cache_dir:
+            return None
+        model_slug = self.model_name.replace("/", "--")
+        path = os.path.join(self.cache_dir, f"models--{model_slug}")
+        return path if os.path.exists(path) else None
+
     def is_model_downloaded(self) -> bool:
-        """Check if model is downloaded"""
+        """Check if model is fully downloaded (has snapshots and key files). Only then use local_files_only."""
         try:
-            if self.cache_dir and os.path.exists(self.cache_dir):
+            cache_path = self._get_model_cache_path()
+            if cache_path:
+                snapshots_path = os.path.join(cache_path, "snapshots")
+                if os.path.isdir(snapshots_path):
+                    snapshots = os.listdir(snapshots_path)
+                    if snapshots:
+                        snapshot_dir = os.path.join(snapshots_path, snapshots[0])
+                        for key in ("config.json", "tokenizer_config.json"):
+                            if os.path.isfile(os.path.join(snapshot_dir, key)):
+                                return True
+            try:
+                AutoTokenizer.from_pretrained(
+                    self.model_name,
+                    cache_dir=self.cache_dir,
+                    trust_remote_code=True,
+                    local_files_only=True
+                )
                 return True
-            tokenizer_path = AutoTokenizer.from_pretrained(
-                self.model_name,
-                cache_dir=self.cache_dir,
-                trust_remote_code=True,
-                local_files_only=True
-            )
-            return tokenizer_path is not None
+            except (OSError, ValueError):
+                return False
         except Exception:
             return False
     
     def load_model(self):
-        """Load model (download if not already downloaded)"""
+        """Load model (download if not already downloaded). When already in cache, use local only to avoid hitting HuggingFace."""
         if self.model is not None and self.tokenizer is not None:
             return
         
+        use_local_only = self.is_model_downloaded()
+        if use_local_only:
+            # Prevent any HuggingFace Hub request (e.g. custom_generate/generate.py) during/after load
+            os.environ["HF_HUB_OFFLINE"] = "1"
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.model_name,
                 cache_dir=self.cache_dir,
-                trust_remote_code=True
+                trust_remote_code=True,
+                local_files_only=use_local_only
             )
             self._reset_forbidden_token_cache()
             
@@ -261,7 +223,8 @@ Sometimes you have emotions, which are currently reflected in your language
                     cache_dir=self.cache_dir,
                     quantization_config=self.quantization_config,
                     device_map="auto",
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    local_files_only=use_local_only
                 )
             else:
                 self.model = AutoModelForCausalLM.from_pretrained(
@@ -269,7 +232,8 @@ Sometimes you have emotions, which are currently reflected in your language
                     cache_dir=self.cache_dir,
                     device_map="auto",
                     trust_remote_code=True,
-                    torch_dtype=torch.float32
+                    torch_dtype=torch.float32,
+                    local_files_only=use_local_only
                 )
             
             if self.model is not None:

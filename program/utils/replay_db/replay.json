@@ -1,0 +1,14 @@
+{
+  "turns": [
+    {
+      "turn_id": 1,
+      "user_input": "晚上好",
+      "assistant_response": "晚安，Carambola。",
+      "timestamp": "2026-02-23T22:47:44.121844",
+      "token_count": 22
+    }
+  ],
+  "total_tokens": 22,
+  "max_turns": 50,
+  "updated_at": "2026-02-23T22:48:04.760708"
+}

@@ -19,6 +19,17 @@ from enum import Enum
 from typing import Optional, Callable
 from queue import Queue
 
+# Force HuggingFace offline when Qwen cache exists (before any hub/transformers use)
+# Avoids fetching custom_generate/generate.py and other repo files after weights load
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_qwen_cache = os.path.join(_script_dir, "utils", "models", "qwen-7b-chat")
+_qwen_model_dir = os.path.join(_qwen_cache, "models--Qwen--Qwen-7B-Chat")
+if os.path.isdir(_qwen_model_dir):
+    _snap = os.path.join(_qwen_model_dir, "snapshots")
+    if os.path.isdir(_snap) and os.listdir(_snap):
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
 # Import path configuration utilities
 from utils.path_config import get_current_dir, get_model_paths
 
@@ -136,6 +147,7 @@ class AIAgent:
                  # Replay configuration
                  replay_token_budget: int = 2000,
                  replay_persist_sessions: bool = True,
+                 replay_max_turns: int = 50,
                  # RAG configuration
                  rag_top_k: int = 3,
                  rag_similarity_threshold: float = 0.7,
@@ -158,6 +170,7 @@ class AIAgent:
             use_rag: Whether to enable memory system, default True
             replay_token_budget: Token budget for Replay system, default 2000
             replay_persist_sessions: Whether to persist Replay sessions, default True
+            replay_max_turns: Max turns to retain in single replay.json (sliding window), default 50
             rag_top_k: Number of top memories to retrieve, default 3
             rag_similarity_threshold: Minimum similarity score for retrieval, default 0.7
             rag_summary_interval: Turns between summaries, default 10
@@ -332,6 +345,7 @@ class AIAgent:
                     replay_token_budget=replay_token_budget,
                     replay_persist_sessions=replay_persist_sessions,
                     replay_persist_path=replay_persist_path,
+                    replay_max_turns=replay_max_turns,
                     rag_persist_directory=memory_persist_path,
                     rag_top_k=rag_top_k,
                     rag_similarity_threshold=rag_similarity_threshold,
@@ -358,7 +372,8 @@ class AIAgent:
                     self.replay_memory = ReplayMemory(
                         token_budget=replay_token_budget,
                         persist_sessions=replay_persist_sessions,
-                        persist_path=replay_persist_path
+                        persist_path=replay_persist_path,
+                        max_turns=replay_max_turns
                     )
                     print(f"[Init] ✓ Replay-only memory initialized at {os.path.abspath(replay_persist_path)}")
                 except Exception as replay_e:
@@ -1734,7 +1749,7 @@ class AIAgent:
                 print(f"[Stop] Error persisting memory coordinator: {e}")
         elif self.replay_memory:
             try:
-                self.replay_memory._save_session()
+                self.replay_memory._save()
                 print("[Stop] Replay session persisted")
             except Exception as e:
                 print(f"[Stop] Error persisting replay: {e}")
