@@ -71,6 +71,10 @@ Two strategies can be applied to alleviate this issue:
 
 In practice, parallel synthesis provides better performance than pure pipelining, which still produces a small but noticeable gap. Therefore, this program enables two concurrent synthesis threads. To avoid playback order confusion, each synthesis task is indexed so that audio is played strictly in sequence.
 
+**Limitation for edge-tts**: the LLM model could generate offline but this feature still requires vpn. This is because edge-tts is supported by Microsoft meaning prolong delay without vpn connection. 
+
+I tried *piper* and *Fish speech* to convert this feature to offline but they didn't perform well as I expected. I will optimize this part in the future but with lower priority.
+
 **Subtitle**
 We use the `PyQt5` library to visualize the generated text. According to the length of each sentence, the subtitle frame automatically inserts line breaks or adjusts font size. Both English and Chinese are supported.
 
