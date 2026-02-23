@@ -101,7 +101,9 @@ Personality: Sharp-tongued + Tsundere
 Since the dynamic prompt is re-applied for each generation, it provides more stable control over personality and speaking style during long conversations.
 ### Tools 
 🚧
+A dedicated function is implemented to determine whether a tool should be triggered based on the user’s input. The decision is made by detecting specific keywords, such as “what’s the weather” or “what time is it”, within the sentence. If the function returns True, the system then sends a structured request to the corresponding API to retrieve the required information.
 
+It is important to emphasize that the API calls are handled entirely by the application layer rather than the language model itself. Although allowing the model to directly call external APIs may seem similar, it effectively grants the model control over system-level operations, which is difficult to manage and potentially unsafe. 
 
 ### Memory
 🚧
