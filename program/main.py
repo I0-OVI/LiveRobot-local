@@ -192,7 +192,6 @@ class AIAgent:
         self.voice_recognition = VoiceRecognition(language=language)
         
         # Voice synthesis (TTS)
-        # Priority: 1. Fish Speech API mode 2. Edge TTS
         # Note: Local direct mode is temporarily commented out, pending debugging
         self.voice_synthesis = None
         
@@ -205,43 +204,6 @@ class AIAgent:
             "ja": "ja",
             "jp": "ja",
         }
-        fish_language = lang_map.get(language, "zh")
-        
-        # ===== Fish Speech 部分（已注释，暂时使用 Edge TTS） =====
-        # # 1. 优先尝试使用 Fish Speech 本地直接模式（最低延迟）
-        # if FISH_SPEECH_AVAILABLE:
-        #     try:
-        #         print("[初始化] 尝试初始化 Fish Speech 本地直接模式（优先，最低延迟）...")
-        #         self.voice_synthesis = FishSpeechVoiceSynthesis(
-        #             language=fish_language,
-        #             use_api=False  # 使用本地直接模式
-        #         )
-        #         self.voice_synthesis.start()
-        #         print("[初始化] ✓ Fish Speech 本地直接模式已初始化")
-        #     except Exception as e:
-        #         print(f"[初始化] ⚠ Fish Speech 本地直接模式初始化失败: {e}")
-        #         print("[初始化] 将尝试 API 模式...")
-        #         import traceback
-        #         traceback.print_exc()
-        #         self.voice_synthesis = None
-        #
-        # # 2. 如果本地直接模式失败，尝试 Fish Speech API 模式
-        # if self.voice_synthesis is None and FISH_SPEECH_AVAILABLE:
-        #     try:
-        #         print("[初始化] 尝试初始化 Fish Speech API 模式（回退方案）...")
-        #         self.voice_synthesis = FishSpeechVoiceSynthesis(
-        #             language=fish_language,
-        #             use_api=True  # 使用 API 模式
-        #         )
-        #         self.voice_synthesis.start()
-        #         print("[初始化] ✓ Fish Speech API 模式已初始化")
-        #     except Exception as e:
-        #         print(f"[初始化] ⚠ Fish Speech API 模式初始化失败: {e}")
-        #         print("[初始化] 将尝试 Edge TTS...")
-        #         import traceback
-        #         traceback.print_exc()
-        #         self.voice_synthesis = None
-        # ===== Fish Speech 部分结束 =====
         
         # 1. Use Edge TTS directly (Fish Speech is commented out)
         if EDGE_TTS_AVAILABLE:

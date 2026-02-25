@@ -88,6 +88,8 @@ class MemoryVectorStore:
                 "memory_id": memory_id,
                 "timestamp": metadata.get("timestamp", datetime.now().isoformat())
             })
+            # ChromaDB rejects empty list in metadata; drop any key with value []
+            metadata = {k: v for k, v in metadata.items() if not (isinstance(v, list) and len(v) == 0)}
             
             # Add to collection
             self.collection.add(

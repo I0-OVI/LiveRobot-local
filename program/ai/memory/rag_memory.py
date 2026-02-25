@@ -111,14 +111,15 @@ class RAGMemory:
         combined_text = f"{user_input} {assistant_response}"
         embedding = self.embedder.embed_text(combined_text)
         
-        # Prepare metadata
+        # Prepare metadata (ChromaDB rejects empty list values, so omit tags when empty)
         metadata = {
             "timestamp": datetime.now().isoformat(),
             "importance": importance,
-            "tags": tags or [],
             "user_input": user_input,
             "assistant_response": assistant_response
         }
+        if tags and len(tags) > 0:
+            metadata["tags"] = tags
         
         # Save to vector store
         success = self.vector_store.add_memory(
