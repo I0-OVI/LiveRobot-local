@@ -113,3 +113,8 @@ When using AI assistants such as ChatGPT, the model reviews recent conversation 
 Replay is relatively straightforward to implement: it involves storing recent conversation turns and feeding them back into the model as context for the next generation. However, it is constrained by the model’s context window. Therefore, only a limited number of recent interactions can be retained, which distinguishes short-term memory (replay) from long-term memory systems.
 
 #### Long-term Memory(RAG)
+**RAG testing**
+
+Consider the two sentences 'My native language is Chinese.' and 'I always talk in Chinese.' At a quick glance, they may appear similar, since in many cases a person’s native language is also the one they use most often. Since embedding models capture structured *semantic differences* rather than relying on *intuition*, these two sentences may not be close in vector space, which means a query phrased in one way may fail to retrieve information written in the other form.
+
+A similar issue appears with words like 'me' and 'user'. In a debugging context, they may refer to the same person, but semantically they are not equivalent.  If the stored knowledge uses one form and the query uses the other, the system may not recognize them as related. To make retrieval more reliable, we need to normalize these variations before querying. This means mapping different surface expressions, such as pronouns and role labels, into a shared representation that matches the context of the application. This process is known as Query Canonicalization.
