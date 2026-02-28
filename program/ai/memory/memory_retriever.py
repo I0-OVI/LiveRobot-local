@@ -6,6 +6,8 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timedelta
 import math
 
+from .query_canonicalizer import canonicalize
+
 
 class MemoryRetriever:
     """Memory retrieval module with various retrieval strategies"""
@@ -61,8 +63,12 @@ class MemoryRetriever:
         top_k = top_k if top_k is not None else self.top_k
         threshold = similarity_threshold if similarity_threshold is not None else self.similarity_threshold
         
-        # Embed the query
-        query_embedding = self.embedder.embed_text(query_text)
+        # Query Canonicalization: normalize "你"/"我"/"用户" etc. to improve retrieval
+        # when different surface forms refer to the same entity (the user)
+        canonical_query = canonicalize(query_text)
+        
+        # Embed the canonicalized query
+        query_embedding = self.embedder.embed_text(canonical_query)
         
         # Search in vector store
         memories = self.vector_store.search_similar(
@@ -72,12 +78,13 @@ class MemoryRetriever:
         )
 
         # Recompute similarity with cosine directly from text embeddings.
-        # This avoids metric mismatch when Chroma distance space/config differs.
+        # Canonicalize document as well so "你"/"我"/"用户" align for fair comparison.
         if memories:
             for memory in memories:
                 document = memory.get("document", "")
                 if document:
-                    doc_embedding = self.embedder.embed_text(document)
+                    canonical_doc = canonicalize(document)
+                    doc_embedding = self.embedder.embed_text(canonical_doc)
                     memory["similarity"] = self._cosine_similarity(query_embedding, doc_embedding)
         
         # Apply time weighting if enabled

@@ -11,6 +11,7 @@ from .memory_embedder import MemoryEmbedder
 from .memory_retriever import MemoryRetriever
 from .importance_filter import ImportanceFilter
 from .memory_merger import MemoryMerger
+from .query_canonicalizer import canonicalize
 
 
 class RAGMemory:
@@ -107,9 +108,10 @@ class RAGMemory:
         # Generate unique ID
         memory_id = str(uuid.uuid4())
         
-        # Create embedding
+        # Create embedding (canonicalize for consistent retrieval across 你/我/用户 etc.)
         combined_text = f"{user_input} {assistant_response}"
-        embedding = self.embedder.embed_text(combined_text)
+        canonical_text = canonicalize(combined_text)
+        embedding = self.embedder.embed_text(canonical_text)
         
         # Prepare metadata (ChromaDB rejects empty list values, so omit tags when empty)
         metadata = {

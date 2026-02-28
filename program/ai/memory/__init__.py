@@ -12,6 +12,7 @@ from .importance_filter import ImportanceFilter
 from .importance_calculator import ImportanceCalculator
 from .memory_merger import MemoryMerger
 from .rag_trigger import RAGTrigger
+from .query_canonicalizer import canonicalize
 
 # Legacy modules (kept for backward compatibility)
 from .memory_manager import MemoryManager
@@ -30,6 +31,7 @@ __all__ = [
     'ImportanceCalculator',
     'MemoryMerger',
     'RAGTrigger',
+    'canonicalize',
     # Legacy modules
     'MemoryManager',
     'MemoryVectorStore',

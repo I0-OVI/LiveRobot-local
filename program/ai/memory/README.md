@@ -192,3 +192,7 @@ If retrieved memories have low similarity:
 - Top-K retrieval with similarity threshold
 - Optional time-based weighting (disabled by default)
 - Cosine similarity for vector comparison
+
+### Query Canonicalization
+
+Pronouns like "你"/"我" (Chinese) and "you"/"I" (English) refer to the same entity. A **Query Canonicalization** layer normalizes within each language: Chinese → "用户", English → "user", so stored content keeps its language and "你叫什么" / "我叫什么" / "what is your name" match semantically. Applied at both retrieval (query + document) and storage (new memories).
