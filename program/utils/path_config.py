@@ -27,36 +27,33 @@ def get_main_dir():
 
 
 def get_project_root():
-    """Get project root directory (LiveRobot root)"""
-    current_dir = get_current_dir()
-    # current_dir is Reorganize/utils, so we need to go up 3 levels to reach project root
-    # Reorganize/utils -> Reorganize -> main_live2d -> main -> project_root
-    
+    """Get project root directory (LiveRobot-local root). Live2D folder is inside this directory."""
+    current_dir = get_current_dir()  # .../LiveRobot-local/program/utils
+    # Project root = directory containing "program" and "Live2D" (LiveRobot-local)
+    # From program/utils -> go up to program -> go up to project root = 2 levels
     if is_colab():
         search_dir = current_dir
         max_levels = 5
-        
         for _ in range(max_levels):
             if os.path.exists(os.path.join(search_dir, "main")):
-                return search_dir
+                return os.path.abspath(search_dir)
             parent = os.path.dirname(search_dir)
             if parent == search_dir:
                 break
             search_dir = parent
-        
-        # Fallback: go up 3 levels from Reorganize/utils
-        return os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        return os.path.abspath(os.path.dirname(os.path.dirname(current_dir)))
     else:
-        # Go up 3 levels: Reorganize/utils -> Reorganize -> main_live2d -> main -> project_root
-        return os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        # LiveRobot-local: program/utils -> program -> LiveRobot-local (2 levels up)
+        project_root = os.path.dirname(get_main_dir())
+        return os.path.abspath(project_root)
 
 
 def get_model_paths():
-    """Get possible model path list"""
-    project_root = get_project_root()
+    """Get possible Live2D model path list. All paths are absolute (Live2D folder is inside LiveRobot-local)."""
+    project_root = get_project_root()  # already absolute
     
     paths = [
-        # Standard Live2D SDK samples
+        # Standard Live2D SDK samples (Live2D folder inside project root)
         os.path.join(project_root, "Live2D", "Samples", "Resources", "Hiyori", "Hiyori.model3.json"),
         os.path.join(project_root, "Live2D", "Samples", "Resources", "Haru", "Haru.model3.json"),
         os.path.join(project_root, "Live2D", "Samples", "Resources", "Mao", "Mao.model3.json"),
@@ -64,7 +61,9 @@ def get_model_paths():
         os.path.join(project_root, "Encapsulation_Live2D", "live2d-py", "Resources", "v3", "Haru", "Haru.model3.json"),
         os.path.join(project_root, "Encapsulation_Live2D", "live2d-py", "Resources", "v3", "Mao", "Mao.model3.json"),
     ]
-    
+    # Normalize to absolute paths
+    paths = [os.path.abspath(p) for p in paths]
+
     if is_colab():
         colab_paths = [
             os.path.join("/content", "LiveRobot", "Live2D", "Samples", "Resources", "Hiyori", "Hiyori.model3.json"),
@@ -74,5 +73,5 @@ def get_model_paths():
             os.path.join("/content", "drive", "MyDrive", "LiveRobot", "Live2D", "Samples", "Resources", "Hiyori", "Hiyori.model3.json"),
         ]
         paths.extend(colab_paths)
-    
+
     return paths

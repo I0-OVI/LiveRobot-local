@@ -46,7 +46,7 @@ program/utils/models/
 
 # Live2D model files (optional, user should download separately)
 Live2D/
-Encapsulation_Live2D/
+Encapsulation/
 
 # Hugging Face cache
 .cache/

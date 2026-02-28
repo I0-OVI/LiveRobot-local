@@ -8,26 +8,26 @@ RAG stores **query–answer pairs**: the first argument is the query (used for r
 
 - **Add one RAG memory** (query + answer; bypasses importance filtering):
   ```bash
-  python tools/rag_manage.py add "<query>" "<answer>"
-  python tools/rag_manage.py add "<query>" "<answer>" --importance 0.8
+  python program/tools/rag_manage.py add "<query>" "<answer>"
+  python program/tools/rag_manage.py add "<query>" "<answer>" --importance 0.8
   ```
-  Example: `python tools/rag_manage.py add "What library for ML?" "I usually use PyTorch."`
+  Example: `python program/tools/rag_manage.py add "What library for ML?" "I usually use PyTorch."`
 - **Delete by ID**:
   ```bash
-  python tools/rag_manage.py delete <memory_id>
+  python program/tools/rag_manage.py delete <memory_id>
   ```
 - **List RAG memories** (paginated):
   ```bash
-  python tools/rag_manage.py list
-  python tools/rag_manage.py list --limit 20 --offset 0
+  python program/tools/rag_manage.py list
+  python program/tools/rag_manage.py list --limit 20 --offset 0
   ```
 - **Clear all RAG memories** (use with caution):
   ```bash
-  python tools/rag_manage.py clear
+  python program/tools/rag_manage.py clear
   ```
 - **Manually merge similar memories** (slower, recommended infrequently):
   ```bash
-  python tools/rag_manage.py merge
+  python program/tools/rag_manage.py merge
   ```
 
 ## 2. RAG Test / Comparison (Independent of Qwen)
@@ -38,12 +38,12 @@ This tool does not load Qwen. It only performs retrieval and context comparison 
 
 - **Single query**:
   ```bash
-  python tools/rag_test_compare.py "your query"
-  python tools/rag_test_compare.py --query "your query" --top-k 5 --threshold 0.7
+  python program/tools/rag_test_compare.py "your query"
+  python program/tools/rag_test_compare.py --query "your query" --top-k 5 --threshold 0.7
   ```
 - **Interactive multi-query mode**:
   ```bash
-  python tools/rag_test_compare.py --interactive
+  python program/tools/rag_test_compare.py --interactive
   ```
 
 Output includes:

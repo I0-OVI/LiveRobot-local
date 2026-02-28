@@ -1,6 +1,6 @@
 """
-RAG test/comparison utility independent from Qwen output model.
-Compares behavior with and without RAG, and reports retrieval details.
+RAG test utility independent from Qwen output model.
+Shows RAG retrieval results and the enhanced_prompt snippet that would be injected.
 No LLM is loaded; only retrieval and enhanced_prompt construction are used.
 Usage (run inside Reorganize):
   python tools/rag_test_compare.py "your query"
@@ -23,39 +23,37 @@ def get_memory_path():
     return os.path.join(get_current_dir(), "memory_db")
 
 
-def build_enhanced_prompt(rag_memories: list) -> str:
+def build_enhanced_prompt(rag_memories: list, include_similarity: bool = True) -> str:
     """Build enhanced_prompt snippet from retrieved RAG memories."""
     if not rag_memories:
         return ""
     memory_lines = []
     for i, memory in enumerate(rag_memories, 1):
+        sim = memory.get("similarity")
         metadata = memory.get("metadata", {})
         mem_user = metadata.get("user_input", "")
         mem_assistant = metadata.get("assistant_response", "")
-        memory_lines.append(f"{i}. {mem_user} -> {mem_assistant}")
+        prefix = (f"[similarity {sim:.4f}] " if sim is not None else "[similarity N/A] ") if include_similarity else ""
+        memory_lines.append(f"{i}. {prefix}{mem_user} -> {mem_assistant}")
     memory_text = "\n".join(memory_lines)
     return f"\nRelevant memories:\n{memory_text}\n"
 
 
 def run_one_query(rag, query: str, top_k: int = 3, similarity_threshold: float = 0.7, verbose: bool = False) -> dict:
     """
-    Run one query: no-RAG context, RAG retrieval, enhanced_prompt, and details.
-    Returns dict with no_rag_prompt, with_rag_prompt, rag_memories,
-    enhanced_prompt_snippet, retrieval_details, raw_below_threshold.
+    Run one query: RAG retrieval, enhanced_prompt snippet, and retrieval details.
+    Returns dict with rag_memories, enhanced_prompt_snippet, retrieval_details, raw_below_threshold.
     """
-    # No RAG: no memory injection
-    no_rag_prompt = "(No RAG: no relevant memories injected)\n"
-
-    # With RAG: retrieval with threshold
+    # RAG retrieval with threshold
     rag_memories = rag.get_relevant_memories(
         query_text=query,
         top_k=top_k,
         similarity_threshold=similarity_threshold,
     )
 
-    # Debug: if no hit, fetch raw top results with threshold=0 for inspection
+    # When no hit, fetch raw top results with threshold=0 to show similarity for each record
     raw_below_threshold = []
-    if verbose and not rag_memories:
+    if not rag_memories:
         raw_all = rag.retriever.retrieve(
             query_text=query,
             top_k=top_k,
@@ -65,7 +63,6 @@ def run_one_query(rag, query: str, top_k: int = 3, similarity_threshold: float =
             raw_below_threshold.append({
                 "id": m.get("id"),
                 "similarity": m.get("similarity", 0.0),
-                "distance": m.get("distance", 0.0),
                 "user_input": (m.get("metadata") or {}).get("user_input", ""),
                 "assistant_response": (m.get("metadata") or {}).get("assistant_response", ""),
             })
@@ -83,15 +80,8 @@ def run_one_query(rag, query: str, top_k: int = 3, similarity_threshold: float =
         })
 
     enhanced_prompt_snippet = build_enhanced_prompt(rag_memories)
-    with_rag_prompt = no_rag_prompt + (
-        "(With RAG: the following snippet is injected into the system prompt)\n" + enhanced_prompt_snippet
-        if enhanced_prompt_snippet
-        else "(With RAG: no memory passed the threshold; injected snippet is empty)\n"
-    )
 
     return {
-        "no_rag_prompt": no_rag_prompt,
-        "with_rag_prompt": with_rag_prompt,
         "rag_memories": rag_memories,
         "enhanced_prompt_snippet": enhanced_prompt_snippet,
         "retrieval_details": retrieval_details,
@@ -114,41 +104,46 @@ def print_report(query: str, result: dict, top_k: int, threshold: float, verbose
     raw_below = result.get("raw_below_threshold", [])
     if not details:
         print("  No memories passed the threshold.")
-        if verbose and raw_below:
-            print("\n  [Debug] Raw top results below threshold (consider lowering --threshold):")
+        if raw_below:
+            print("\n  Top results (below threshold, consider lowering --threshold):")
             for i, d in enumerate(raw_below, 1):
                 sim = d.get("similarity", 0.0)
-                dist = d.get("distance", 0.0)
-                ui = (d.get("user_input") or "")[:60]
-                print(f"    [{i}] similarity={sim:.4f}, distance={dist:.4f}  user: {ui}...")
+                ui = (d.get("user_input") or "")[:100]
+                ar = (d.get("assistant_response") or "")[:100]
+                print(f"  [{i}] id={d.get('id')}  similarity={sim:.4f}")
+                print(f"      user_input: {ui}...")
+                print(f"      assistant_response: {ar}...")
+                print()
     else:
         for i, d in enumerate(details, 1):
-            print(f"  [{i}] id={d['id']}")
-            print(f"      similarity={d['similarity']:.4f}, distance={d['distance']:.4f}")
+            sim = d.get("similarity")
+            sim_str = f"{sim:.4f}" if sim is not None else "N/A"
+            print(f"  [{i}] id={d['id']}  similarity={sim_str}")
             print(f"      user_input: {d['user_input'][:100]}...")
             print(f"      assistant_response: {d['assistant_response'][:100]}...")
             print()
     print()
 
     print("=" * 60)
-    print("Comparison: Without RAG vs With RAG (system prompt injection)")
+    print("Injected snippet (appended to system prompt)")
     print("=" * 60)
-    print("--- Without RAG (context passed to model) ---")
-    print(result["no_rag_prompt"])
-    print("--- With RAG (snippet appended to system prompt) ---")
-    print(result["with_rag_prompt"])
+    snippet = result["enhanced_prompt_snippet"]
+    if snippet:
+        print(snippet)
+    else:
+        print("  (empty — no memory passed the threshold)")
     print("=" * 60 + "\n")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="RAG test comparison: compare with/without RAG and show retrieval details (no Qwen load)"
+        description="RAG test: show retrieval details and injected prompt snippet (no Qwen load)"
     )
     parser.add_argument("query", nargs="?", type=str, default=None, help="Single query text")
     parser.add_argument("--query", dest="query_opt", type=str, default=None, help="Alternative way to pass query")
     parser.add_argument("--top-k", type=int, default=5, help="RAG retrieval top_k")
     parser.add_argument("--threshold", type=float, default=0.7, help="Similarity threshold (default: 0.7, stricter)")
-    parser.add_argument("--verbose", action="store_true", help="If no hits, show raw below-threshold results for debugging")
+    parser.add_argument("--verbose", action="store_true", help="Additional debug output")
     parser.add_argument("--interactive", action="store_true", help="Interactive multi-query mode")
     args = parser.parse_args()
 
