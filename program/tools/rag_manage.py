@@ -20,13 +20,7 @@ _REORGANIZE_DIR = os.path.dirname(_SCRIPT_DIR)
 if _REORGANIZE_DIR not in sys.path:
     sys.path.insert(0, _REORGANIZE_DIR)
 
-from utils.path_config import get_current_dir
-
-
-def get_memory_path():
-    """Use the same default memory_db location as main."""
-    current_dir = get_current_dir()
-    return os.path.join(current_dir, "memory_db")
+from utils.path_config import get_memory_db_path
 
 
 def create_store(persist_directory: str, collection_name: str = "conversation_memories"):
@@ -43,11 +37,14 @@ def create_embedder():
     return MemoryEmbedder()
 
 
-def cmd_add(store, embedder, user_input: str, assistant_response: str, importance: float = 1.0) -> str:
-    """Manually add one RAG memory (without importance filtering)."""
+def cmd_add(store, embedder, user_input: str, assistant_response: str, importance: float = 1.0, user_name=None) -> str:
+    """Manually add one RAG memory (without importance filtering). Uses same canonicalization as main."""
+    from ai.memory.query_canonicalizer import canonicalize
+
     memory_id = str(uuid.uuid4())
     combined_text = f"{user_input} {assistant_response}"
-    embedding = embedder.embed_text(combined_text)
+    canonical_text = canonicalize(combined_text, user_name=user_name)
+    embedding = embedder.embed_text(canonical_text)
     metadata = {
         "timestamp": datetime.now().isoformat(),
         "importance": importance,
@@ -85,9 +82,11 @@ def cmd_clear(store) -> bool:
 def cmd_merge(persist_directory: str, collection_name: str = "conversation_memories") -> int:
     """Run one manual merge pass for similar memories."""
     from ai.memory.rag_memory import RAGMemory
+    from utils.setup_loader import get_user_name
     rag = RAGMemory(
         persist_directory=persist_directory,
         collection_name=collection_name,
+        user_name=get_user_name(),
     )
     return rag.merge_similar_memories()
 
@@ -118,8 +117,10 @@ def main():
     subparsers.add_parser("merge", help="Manually merge similar memories (slower, run occasionally)")
 
     args = parser.parse_args()
-    memory_path = get_memory_path()
+    memory_path = get_memory_db_path()
     collection_name = "conversation_memories"
+    from utils.setup_loader import get_user_name
+    user_name = get_user_name()
 
     if args.command == "clear":
         try:
@@ -190,6 +191,7 @@ def main():
                 user_input=args.user_input,
                 assistant_response=args.assistant_response,
                 importance=getattr(args, "importance", 1.0),
+                user_name=user_name,
             )
             print(f"[RAG Manage] Added, memory_id={mid}")
         except Exception as e:

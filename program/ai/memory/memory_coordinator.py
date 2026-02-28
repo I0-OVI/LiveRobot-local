@@ -34,6 +34,7 @@ class MemoryCoordinator:
         rag_auto_merge_every: int = 50,
         rag_allow_no_memories: bool = True,
         rag_use_llm_trigger: bool = False,
+        rag_user_name: Optional[str] = None,
         text_generator=None
     ):
         """
@@ -56,6 +57,7 @@ class MemoryCoordinator:
             rag_auto_merge_every: Auto-merge after every N successful RAG saves (0 disables)
             rag_allow_no_memories: Allow no valid memories in RAG
             rag_use_llm_trigger: If True, use LLM to decide when to use RAG (can block ~2–5s before first token). If False, only keyword-based trigger for smoother voice.
+            rag_user_name: User name from setup.txt for RAG canonicalization (e.g. Carambola). If None, RAG uses default canonicalization only.
             text_generator: Text generator for summary generation
         """
         # Initialize Replay system
@@ -76,7 +78,8 @@ class MemoryCoordinator:
             importance_base_threshold=rag_importance_base_threshold,
             importance_max_memories=rag_importance_max_memories,
             merge_similarity_threshold=rag_merge_similarity_threshold,
-            allow_no_memories=rag_allow_no_memories
+            allow_no_memories=rag_allow_no_memories,
+            user_name=rag_user_name
         )
         
         # Initialize summarizer

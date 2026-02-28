@@ -16,8 +16,13 @@ def is_colab():
 
 
 def get_current_dir():
-    """Get current file directory (Reorganize directory)"""
+    """Get the utils directory (parent of path_config.py). Used as base for memory_db, replay_db."""
     return os.path.dirname(os.path.abspath(__file__))
+
+
+def get_memory_db_path() -> str:
+    """Get RAG memory_db path. Same as main.py and tools use - single source of truth."""
+    return os.path.join(get_current_dir(), "memory_db")
 
 
 def get_main_dir():

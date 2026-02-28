@@ -29,7 +29,8 @@ class RAGMemory:
         importance_base_threshold: float = 0.5,
         importance_max_memories: int = 1000,
         merge_similarity_threshold: float = 0.95,
-        allow_no_memories: bool = True
+        allow_no_memories: bool = True,
+        user_name: Optional[str] = None
     ):
         """
         Initialize RAG memory system
@@ -46,6 +47,7 @@ class RAGMemory:
             importance_max_memories: Maximum memories for adaptive threshold
             merge_similarity_threshold: Similarity threshold for merging duplicates
             allow_no_memories: Allow returning empty results if no valid memories
+            user_name: User name from setup.txt for canonicalization (e.g. Carambola -> 用户 in retrieval)
         """
         # Initialize core components
         self.vector_store = MemoryVectorStore(
@@ -61,7 +63,8 @@ class RAGMemory:
             top_k=top_k,
             similarity_threshold=similarity_threshold,
             use_time_weight=use_time_weight,
-            time_decay_days=time_decay_days
+            time_decay_days=time_decay_days,
+            user_name=user_name
         )
         
         # Initialize importance filter
@@ -77,6 +80,7 @@ class RAGMemory:
         
         self.allow_no_memories = allow_no_memories
         self.persist_directory = persist_directory
+        self.user_name = user_name
     
     def add_memory_with_importance_check(
         self,
@@ -108,9 +112,9 @@ class RAGMemory:
         # Generate unique ID
         memory_id = str(uuid.uuid4())
         
-        # Create embedding (canonicalize for consistent retrieval across 你/我/用户 etc.)
+        # Create embedding (canonicalize for consistent retrieval across 你/我/用户 and user_name)
         combined_text = f"{user_input} {assistant_response}"
-        canonical_text = canonicalize(combined_text)
+        canonical_text = canonicalize(combined_text, user_name=self.user_name)
         embedding = self.embedder.embed_text(canonical_text)
         
         # Prepare metadata (ChromaDB rejects empty list values, so omit tags when empty)

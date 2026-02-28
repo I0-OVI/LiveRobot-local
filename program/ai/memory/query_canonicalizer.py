@@ -1,13 +1,12 @@
 """
 Query Canonicalization layer for RAG retrieval.
 
-In conversational context, "你"/"我"/"用户" (Chinese) and "you"/"I"/"user" (English)
-all refer to the same entity (the person using the program). Different surface
-forms can cause embedding mismatch. This module normalizes within each language:
-Chinese → "用户", English → "user", so stored content stays in its language.
+In conversational context, "你"/"我"/"用户" (Chinese), "you"/"I"/"user" (English),
+and the actual user name (e.g. Carambola from setup.txt) all refer to the same
+entity. This module normalizes to canonical forms within each language.
 """
 import re
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 # Chinese: normalize to "用户". Order matters (e.g., 咱们 before 咱)
 _CHINESE_PAIRS: List[Tuple[str, str]] = [
@@ -33,13 +32,14 @@ _ENGLISH_PAIRS: List[Tuple[str, str]] = [
 ]
 
 
-def canonicalize(text: str) -> str:
+def canonicalize(text: str, user_name: Optional[str] = None) -> str:
     """
-    Normalize user-referring terms within each language: Chinese → "用户",
-    English → "user". Keeps canonical form in the same language as the content.
+    Normalize user-referring terms: Chinese → "用户", English → "user".
+    If user_name is provided (from setup.txt), it is also replaced with "用户".
 
     Args:
         text: Raw query or document text
+        user_name: Actual user name (e.g. Carambola); replaced with 用户 for retrieval
 
     Returns:
         Canonicalized text with user references unified
@@ -48,6 +48,10 @@ def canonicalize(text: str) -> str:
         return text
 
     result = text
+    # User name from setup.txt -> 用户 (align with Chinese canonical form)
+    if user_name and user_name.strip():
+        name = user_name.strip()
+        result = result.replace(name, "用户")
     for pattern, replacement in _CHINESE_PAIRS:
         result = result.replace(pattern, replacement)
     for pattern, replacement in _ENGLISH_PAIRS:
@@ -55,8 +59,8 @@ def canonicalize(text: str) -> str:
     return result
 
 
-def canonicalize_for_retrieval(text: str) -> str:
+def canonicalize_for_retrieval(text: str, user_name: Optional[str] = None) -> str:
     """
     Alias for canonicalize. Use this when preparing text for RAG retrieval.
     """
-    return canonicalize(text)
+    return canonicalize(text, user_name=user_name)

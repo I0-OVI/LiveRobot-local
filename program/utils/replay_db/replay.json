@@ -41,9 +41,37 @@
       "assistant_response": "Carambola一般使用中文进行交流。不过，如果你们之间有其他共同的语言，也可以使用那个。",
       "timestamp": "2026-02-28T14:48:13.077450",
       "token_count": 64
+    },
+    {
+      "turn_id": 7,
+      "user_input": "Carmbola的母语是什么",
+      "assistant_response": "Carambola的母语是中文。",
+      "timestamp": "2026-02-28T15:58:29.614726",
+      "token_count": 30
+    },
+    {
+      "turn_id": 8,
+      "user_input": "你的用户叫什么",
+      "assistant_response": "我的用户叫Carambola。",
+      "timestamp": "2026-02-28T16:07:25.602673",
+      "token_count": 27
+    },
+    {
+      "turn_id": 9,
+      "user_input": "Carambola的母语是什么",
+      "assistant_response": "Carambola的母语是中文。",
+      "timestamp": "2026-02-28T16:07:42.107251",
+      "token_count": 31
+    },
+    {
+      "turn_id": 10,
+      "user_input": "Carambola喜欢读什么书",
+      "assistant_response": "我不太知道Carambola喜欢读什么样的书，因为我不是真正的了解他。但是，你可以尝试问他这个问题，看看他会怎么回答。",
+      "timestamp": "2026-02-28T16:08:08.573807",
+      "token_count": 80
     }
   ],
-  "total_tokens": 256,
+  "total_tokens": 424,
   "max_turns": 50,
-  "updated_at": "2026-02-28T14:48:13.078449"
+  "updated_at": "2026-02-28T16:08:18.462470"
 }

@@ -16,7 +16,7 @@ from transformers import (
 )
 from threading import Thread
 from .tool_manager import ToolManager
-from utils.setup_loader import load_setup, parse_forbidden_words_list
+from utils.setup_loader import load_setup, get_user_name, parse_forbidden_words_list
 
 
 class ForbiddenWordsLogitsProcessor(LogitsProcessor):
@@ -56,10 +56,13 @@ class QwenTextGenerator:
 
         # Load system prompt, role and forbidden words from setup.txt (minimal fallbacks if section missing)
         setup = load_setup()
+        user_name = get_user_name()
         self.SYSTEM_PROMPT_BASE_ZH = setup.get("SYSTEM_PROMPT_ZH") or "你是一个AI桌宠。\n"
         self.SYSTEM_PROMPT_BASE_EN = setup.get("SYSTEM_PROMPT_EN") or "You are an AI desktop pet.\n"
-        self.DYNAMIC_PROMPT_ZH = setup.get("ROLE_ZH") or ""
-        self.DYNAMIC_PROMPT_EN = setup.get("ROLE_EN") or ""
+        role_zh = setup.get("ROLE_ZH") or ""
+        role_en = setup.get("ROLE_EN") or ""
+        self.DYNAMIC_PROMPT_ZH = role_zh.replace("{USER_NAME}", user_name)
+        self.DYNAMIC_PROMPT_EN = role_en.replace("{USER_NAME}", user_name)
         self.FORBIDDEN_WORDS_ZH = parse_forbidden_words_list(setup["FORBIDDEN_WORDS_ZH"]) if setup.get("FORBIDDEN_WORDS_ZH") else []
         self.FORBIDDEN_WORDS_EN = parse_forbidden_words_list(setup["FORBIDDEN_WORDS_EN"]) if setup.get("FORBIDDEN_WORDS_EN") else []
 

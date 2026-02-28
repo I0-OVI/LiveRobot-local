@@ -16,11 +16,7 @@ _REORGANIZE_DIR = os.path.dirname(_SCRIPT_DIR)
 if _REORGANIZE_DIR not in sys.path:
     sys.path.insert(0, _REORGANIZE_DIR)
 
-from utils.path_config import get_current_dir
-
-
-def get_memory_path():
-    return os.path.join(get_current_dir(), "memory_db")
+from utils.path_config import get_memory_db_path
 
 
 def build_enhanced_prompt(rag_memories: list, include_similarity: bool = True) -> str:
@@ -147,7 +143,7 @@ def main():
     parser.add_argument("--interactive", action="store_true", help="Interactive multi-query mode")
     args = parser.parse_args()
 
-    memory_path = get_memory_path()
+    memory_path = get_memory_db_path()
     if not os.path.exists(memory_path):
         print(f"[RAG Test] memory_db not found: {memory_path}")
         print("Run the main app first, or add some memories via tools/rag_manage.py add before testing.")
@@ -159,14 +155,17 @@ def main():
         print(f"[RAG Test] Failed to import RAGMemory: {e}")
         sys.exit(1)
 
+    from utils.setup_loader import get_user_name
+    user_name = get_user_name()
     rag = RAGMemory(
         persist_directory=memory_path,
         collection_name="conversation_memories",
         top_k=args.top_k,
         similarity_threshold=args.threshold,
+        user_name=user_name,
     )
     count = rag.count()
-    print(f"[RAG Test] Loaded RAG store, current memory count: {count}")
+    print(f"[RAG Test] Loaded RAG store at {os.path.abspath(memory_path)}, count: {count}, user_name: {user_name}")
 
     if args.interactive:
         print("Interactive mode: enter query and press Enter; empty line to exit.\n")

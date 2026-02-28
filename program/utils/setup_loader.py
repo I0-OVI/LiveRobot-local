@@ -13,6 +13,7 @@ _SETUP_PATH = os.path.join(_REORGANIZE_ROOT, _SETUP_FILENAME)
 
 # Section names (must match markers in setup.txt)
 _SECTIONS = (
+    "USER_NAME",
     "SYSTEM_PROMPT_ZH", "SYSTEM_PROMPT_EN", "ROLE_ZH", "ROLE_EN",
     "FORBIDDEN_WORDS_ZH", "FORBIDDEN_WORDS_EN",
 )
@@ -61,11 +62,29 @@ def get_setup_path() -> str:
 def load_setup() -> Dict[str, str]:
     """
     Load system prompt, role and forbidden words from setup file.
-    Returns a dict with keys: SYSTEM_PROMPT_ZH, SYSTEM_PROMPT_EN, ROLE_ZH, ROLE_EN,
+    Returns a dict with keys: USER_NAME, SYSTEM_PROMPT_ZH, SYSTEM_PROMPT_EN, ROLE_ZH, ROLE_EN,
     FORBIDDEN_WORDS_ZH, FORBIDDEN_WORDS_EN. Only keys with non-empty content are present.
     For forbidden words, value is newline-separated phrases (split into list by caller).
     """
     return _parse_setup_file(_SETUP_PATH)
+
+
+def get_user_name() -> str:
+    """
+    Get user name from setup file. Used for ROLE placeholder and RAG canonicalization.
+    Returns first non-empty line of USER_NAME section, or "User" if empty/missing.
+    Read is a single file parse at first call; typically <10ms.
+    """
+    setup = load_setup()
+    raw = setup.get("USER_NAME", "").strip()
+    if not raw:
+        return "User"
+    # Use first non-comment line
+    for line in raw.splitlines():
+        s = line.strip()
+        if s and not s.startswith("#"):
+            return s
+    return "User"
 
 
 def parse_forbidden_words_list(raw: str) -> list:

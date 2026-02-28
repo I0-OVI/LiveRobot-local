@@ -296,14 +296,17 @@ class AIAgent:
         self.replay_memory = None  # Fallback: Replay-only when RAG deps missing
         
         if self.use_rag:
-            current_dir = get_current_dir()
             if memory_persist_path is None:
-                memory_persist_path = os.path.join(current_dir, "memory_db")
+                from utils.path_config import get_memory_db_path
+                memory_persist_path = get_memory_db_path()
+            current_dir = get_current_dir()
             replay_persist_path = os.path.join(current_dir, "replay_db")
             
             try:
                 from ai.memory import MemoryCoordinator
+                from utils.setup_loader import get_user_name
                 
+                user_name = get_user_name()
                 # Initialize full memory coordinator (Replay + RAG)
                 self.memory_coordinator = MemoryCoordinator(
                     replay_token_budget=replay_token_budget,
@@ -320,10 +323,12 @@ class AIAgent:
                     rag_auto_merge_every=rag_auto_merge_every,
                     rag_allow_no_memories=rag_allow_no_memories,
                     rag_use_llm_trigger=False,
+                    rag_user_name=user_name,
                     text_generator=None
                 )
                 
                 print(f"[Init] ✓ Memory Coordinator initialized (Replay + RAG)")
+                print(f"[Init] User name from setup.txt: {user_name}")
                 print(f"[Init] Replay path: {os.path.abspath(replay_persist_path)}, RAG path: {os.path.abspath(memory_persist_path)}")
                 print(f"[Init] Replay token budget: {replay_token_budget}")
                 print(f"[Init] RAG top_k: {rag_top_k}, similarity_threshold: {rag_similarity_threshold}")

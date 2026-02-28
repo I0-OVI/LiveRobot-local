@@ -19,7 +19,8 @@ class MemoryRetriever:
         top_k: int = 3,
         similarity_threshold: float = 0.7,
         use_time_weight: bool = False,
-        time_decay_days: int = 30
+        time_decay_days: int = 30,
+        user_name: Optional[str] = None
     ):
         """
         Initialize memory retriever
@@ -31,6 +32,7 @@ class MemoryRetriever:
             similarity_threshold: Minimum similarity score (0.0-1.0)
             use_time_weight: Whether to weight memories by recency
             time_decay_days: Days for time decay (recent memories weighted higher)
+            user_name: User name from setup.txt; canonicalized to 用户 for retrieval alignment
         """
         self.vector_store = vector_store
         self.embedder = embedder
@@ -38,6 +40,7 @@ class MemoryRetriever:
         self.similarity_threshold = similarity_threshold
         self.use_time_weight = use_time_weight
         self.time_decay_days = time_decay_days
+        self.user_name = (user_name or "").strip() or None
     
     def retrieve(
         self,
@@ -63,9 +66,8 @@ class MemoryRetriever:
         top_k = top_k if top_k is not None else self.top_k
         threshold = similarity_threshold if similarity_threshold is not None else self.similarity_threshold
         
-        # Query Canonicalization: normalize "你"/"我"/"用户" etc. to improve retrieval
-        # when different surface forms refer to the same entity (the user)
-        canonical_query = canonicalize(query_text)
+        # Query Canonicalization: normalize "你"/"我"/"用户" and user_name to improve retrieval
+        canonical_query = canonicalize(query_text, user_name=self.user_name)
         
         # Embed the canonicalized query
         query_embedding = self.embedder.embed_text(canonical_query)
@@ -78,12 +80,12 @@ class MemoryRetriever:
         )
 
         # Recompute similarity with cosine directly from text embeddings.
-        # Canonicalize document as well so "你"/"我"/"用户" align for fair comparison.
+        # Canonicalize document as well so "你"/"我"/"用户" and user_name align for fair comparison.
         if memories:
             for memory in memories:
                 document = memory.get("document", "")
                 if document:
-                    canonical_doc = canonicalize(document)
+                    canonical_doc = canonicalize(document, user_name=self.user_name)
                     doc_embedding = self.embedder.embed_text(canonical_doc)
                     memory["similarity"] = self._cosine_similarity(query_embedding, doc_embedding)
         
