@@ -702,14 +702,21 @@ class AIAgent:
                 # Get context from memory (Replay + RAG or Replay-only)
                 replay_history = []
                 enhanced_prompt = None
+                prompt_to_model = user_input  # 传入模型的当前轮问题（无 RAG 时=原输入）
                 if self.memory_coordinator:
                     try:
                         replay_history, rag_memories, enhanced_prompt, rag_used = self.memory_coordinator.get_context_for_generation(user_input)
                         self.conversation_history = replay_history
                         if enhanced_prompt:
                             system_prompt = self.text_generator._get_system_prompt(user_input)
-                            enhanced_prompt = system_prompt + enhanced_prompt
+                            # RAG 放在当前用户问题前（紧邻生成点），模型更易使用；system 仅 base+role
+                            prompt_to_model = enhanced_prompt + "\n\n用户问：" + user_input
+                            enhanced_prompt = system_prompt  # 仅 system，不再拼 RAG
                             print(f"[Memory] Using {len(replay_history)} replay turns and {len(rag_memories)} RAG memories")
+                            for m in rag_memories:
+                                meta = m.get("metadata", {})
+                                ui, ar = (meta.get("user_input") or "")[:40], (meta.get("assistant_response") or "")[:40]
+                                print(f"[Memory] RAG注入(附在用户问题前): {ui}... -> {ar}...")
                         else:
                             print(f"[Memory] Using {len(replay_history)} replay turns" + (", RAG triggered but no memories" if rag_used else ", RAG not triggered"))
                     except Exception as e:
@@ -726,7 +733,7 @@ class AIAgent:
                 self._start_text_output()
                 
                 try:
-                    for response in self.text_generator.chat_stream(user_input, self.conversation_history, enhanced_prompt=enhanced_prompt):
+                    for response in self.text_generator.chat_stream(prompt_to_model, self.conversation_history, enhanced_prompt=enhanced_prompt):
                         full_response = response
                         
                         # 如果是第一个片段，切换到 talk 状态（output thread 已提前启动）
@@ -755,20 +762,24 @@ class AIAgent:
                     # 流式推理失败（通常是 transformers_stream_generator 兼容性问题）
                     if '_validate_model_class' in str(e):
                         # 回退到非流式推理
+                        prompt_to_model_fb = user_input
                         if self.memory_coordinator:
                             try:
                                 replay_history, rag_memories, enhanced_prompt, rag_used = self.memory_coordinator.get_context_for_generation(user_input)
                                 self.conversation_history = replay_history
                                 if enhanced_prompt:
                                     system_prompt = self.text_generator._get_system_prompt(user_input)
-                                    enhanced_prompt = system_prompt + enhanced_prompt
+                                    prompt_to_model_fb = enhanced_prompt + "\n\n用户问：" + user_input
+                                    enhanced_prompt = system_prompt
                             except Exception as e:
                                 print(f"[Memory] Error getting context: {e}")
                                 enhanced_prompt = None
+                                prompt_to_model_fb = user_input
                         elif self.replay_memory:
                             self.conversation_history = self.replay_memory.get_replay_history()
+                            prompt_to_model_fb = user_input
                         
-                        response, updated_history = self.text_generator.chat(user_input, self.conversation_history, enhanced_prompt=enhanced_prompt)
+                        response, updated_history = self.text_generator.chat(prompt_to_model_fb, self.conversation_history, enhanced_prompt=enhanced_prompt)
                         self.conversation_history = updated_history
                         full_response = response
                         # 非流式回退时，切换状态（output thread 已提前启动）
@@ -863,14 +874,21 @@ class AIAgent:
                 # Get context from memory (Replay + RAG or Replay-only)
                 replay_history = []
                 enhanced_prompt = None
+                prompt_to_model = user_input
                 if self.memory_coordinator:
                     try:
                         replay_history, rag_memories, enhanced_prompt, rag_used = self.memory_coordinator.get_context_for_generation(user_input)
                         self.conversation_history = replay_history
                         if enhanced_prompt:
                             system_prompt = self.text_generator._get_system_prompt(user_input)
-                            enhanced_prompt = system_prompt + enhanced_prompt
+                            # RAG 放在当前用户问题前（紧邻生成点），模型更易使用；system 仅 base+role
+                            prompt_to_model = enhanced_prompt + "\n\n用户问：" + user_input
+                            enhanced_prompt = system_prompt  # 仅 system，不再拼 RAG
                             print(f"[Memory] Using {len(replay_history)} replay turns and {len(rag_memories)} RAG memories")
+                            for m in rag_memories:
+                                meta = m.get("metadata", {})
+                                ui, ar = (meta.get("user_input") or "")[:40], (meta.get("assistant_response") or "")[:40]
+                                print(f"[Memory] RAG注入(附在用户问题前): {ui}... -> {ar}...")
                         else:
                             print(f"[Memory] Using {len(replay_history)} replay turns" + (", RAG triggered but no memories" if rag_used else ", RAG not triggered"))
                     except Exception as e:
@@ -886,7 +904,7 @@ class AIAgent:
                 # Start output thread early (before model inference) to avoid blocking when result arrives
                 self._start_text_output()
                 
-                response, updated_history = self.text_generator.chat(user_input, self.conversation_history, enhanced_prompt=enhanced_prompt)
+                response, updated_history = self.text_generator.chat(prompt_to_model, self.conversation_history, enhanced_prompt=enhanced_prompt)
                 
                 self.conversation_history = updated_history
                 

@@ -49,7 +49,7 @@ class MemoryCoordinator:
             rag_collection_name: ChromaDB collection name
             rag_embedder_model: Embedder model name
             rag_top_k: Top-k for RAG retrieval
-            rag_similarity_threshold: Similarity threshold for RAG
+            rag_similarity_threshold: 语义相似度阈值，达到此值(默认0.7)的记忆才会被注入 prompt
             rag_summary_interval: Turns between summaries
             rag_importance_base_threshold: Base importance threshold
             rag_importance_max_memories: Max memories for adaptive threshold
@@ -98,6 +98,7 @@ class MemoryCoordinator:
         self.rag_auto_merge_every = max(0, int(rag_auto_merge_every))
         self._rag_save_count_since_merge = 0
         self._rag_merge_lock = threading.Lock()
+        self.rag_similarity_threshold = rag_similarity_threshold  # 语义相似度>=0.7时使用该记忆
 
         self.text_generator = text_generator
     
@@ -139,10 +140,11 @@ class MemoryCoordinator:
                 print(f"[MemoryCoordinator] RAG triggered: {trigger_reason}")
         
         if should_use_rag:
-            # Retrieve RAG memories
+            # Retrieve RAG memories (only those with semantic similarity >= threshold, default 0.7)
             rag_memories = self.rag.get_relevant_memories(
                 query_text=user_input,
-                top_k=rag_top_k
+                top_k=rag_top_k,
+                similarity_threshold=self.rag_similarity_threshold
             )
             rag_used = True
             if rag_memories:
@@ -155,7 +157,7 @@ class MemoryCoordinator:
         # Build enhanced prompt if RAG memories exist
         enhanced_prompt = None
         if rag_memories:
-            # Format memories for prompt
+            # Format memories for prompt - explicit instruction so model uses them
             memory_lines = []
             for i, memory in enumerate(rag_memories, 1):
                 metadata = memory.get("metadata", {})
@@ -164,7 +166,11 @@ class MemoryCoordinator:
                 memory_lines.append(f"{i}. {mem_user} -> {mem_assistant}")
             
             memory_text = "\n".join(memory_lines)
-            enhanced_prompt = f"\n相关记忆：\n{memory_text}\n"
+            enhanced_prompt = (
+                "\n\n【重要：请根据以下相关记忆回答用户问题，若记忆中有答案则直接使用】\n"
+                "相关记忆：\n"
+                f"{memory_text}\n"
+            )
         
         return replay_history, rag_memories, enhanced_prompt, rag_used
     
@@ -221,6 +227,28 @@ class MemoryCoordinator:
                 use_llm_evaluation=use_llm_evaluation
             )
     
+    def _is_non_answer_response(self, assistant_response: str) -> bool:
+        """
+        Detect 'I don't know' type responses that should not be stored in RAG.
+        E.g. "我不知道xxx喜欢什么", "我不太了解" - storing these adds noise, not knowledge.
+        """
+        if not assistant_response or len(assistant_response.strip()) < 6:
+            return False
+        text = assistant_response.strip()
+        # Non-answer phrases: response starting with or dominated by these
+        non_answer_phrases = (
+            "我不知道", "我不太知道", "不了解", "不太了解",
+            "没法", "无法回答", "不太清楚", "不清楚",
+            "I don't know", "I don't have", "I'm not sure",
+        )
+        for phrase in non_answer_phrases:
+            if text.startswith(phrase):
+                return True
+            # Also catch "xxx，我不知道..." (phrase in first 40 chars)
+            if phrase in text[:40]:
+                return True
+        return False
+
     def _save_to_rag(
         self,
         user_input: str,
@@ -240,6 +268,11 @@ class MemoryCoordinator:
             tags: Optional tags for RAG
             use_llm_evaluation: Whether to use LLM to calculate importance if not provided
         """
+        # Skip non-answer responses (e.g. "我不知道xxx喜欢什么")
+        if self._is_non_answer_response(assistant_response):
+            print(f"[RAG] Skipped saving non-answer response (e.g. 不知道/不了解)")
+            return
+
         # Calculate importance if not provided
         calculated_importance = importance
         importance_details = {}

@@ -69,9 +69,37 @@
       "assistant_response": "我不太知道Carambola喜欢读什么样的书，因为我不是真正的了解他。但是，你可以尝试问他这个问题，看看他会怎么回答。",
       "timestamp": "2026-02-28T16:08:08.573807",
       "token_count": 80
+    },
+    {
+      "turn_id": 11,
+      "user_input": "中午好",
+      "assistant_response": "午安，Carambola。你在做什么呢？",
+      "timestamp": "2026-03-01T12:03:19.774192",
+      "token_count": 29
+    },
+    {
+      "turn_id": 12,
+      "user_input": "Carambola一般喜欢看什么书",
+      "assistant_response": "我不知道Carambola喜欢看什么样的书，因为我不太了解他。但是，你可以尝试问他这个问题，看看他会怎么回答。",
+      "timestamp": "2026-03-01T12:03:37.065257",
+      "token_count": 79
+    },
+    {
+      "turn_id": 13,
+      "user_input": "Carambola喜欢看什么种类的书",
+      "assistant_response": "我不知道Carambola喜欢看什么样的书，因为我不太了解他。但是，你可以尝试问他这个问题，看看他会怎么回答。",
+      "timestamp": "2026-03-01T12:42:02.261830",
+      "token_count": 79
+    },
+    {
+      "turn_id": 14,
+      "user_input": "Carambola喜欢看什么种类的书",
+      "assistant_response": "我不知道Carambola喜欢看什么样的书，因为我不太了解他。但是，你可以尝试问他这个问题，看看他会怎么回答。",
+      "timestamp": "2026-03-01T12:46:22.505847",
+      "token_count": 79
     }
   ],
-  "total_tokens": 424,
+  "total_tokens": 690,
   "max_turns": 50,
-  "updated_at": "2026-02-28T16:08:18.462470"
+  "updated_at": "2026-03-01T12:46:33.323863"
 }

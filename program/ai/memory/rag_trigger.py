@@ -18,10 +18,13 @@ class RAGTrigger:
     # Layer 1: First-layer keywords (specific memory-related phrases)
     # If any of these appear, use RAG directly without LLM judgment
     LAYER1_KEYWORDS = [
-        # Chinese
+        # Chinese: temporal/history
         "之前", "刚才", "我们说过", "以前", "之前的", "原来那个",
+        # Chinese: user preference / self info (often stored in RAG)
+        "喜欢什么", "偏好", "爱好", "叫什么", "住在哪", "母语",
+        "喜欢看", "喜欢读", "喜欢听",
         # English
-        "my preference", "we decided"
+        "my preference", "we decided", "what do I like", "my name"
     ]
     
     def __init__(self, text_generator=None, use_llm_judgment: bool = True):

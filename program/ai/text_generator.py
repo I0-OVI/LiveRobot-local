@@ -424,5 +424,5 @@ class QwenTextGenerator:
                 if response != full_response:
                     yield response
         except Exception:
-            response, _ = self.chat(user_input, history)
+            response, _ = self.chat(user_input, history, enhanced_prompt=enhanced_prompt)
             yield response

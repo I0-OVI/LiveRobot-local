@@ -14,7 +14,7 @@ RAG stores **query–answer pairs**: the first argument is the query (used for r
   Example: `python program/tools/rag_manage.py add "What library for ML?" "I usually use PyTorch."`
 - **Delete by ID**:
   ```bash
-  python program/tools/rag_manage.py delete <memory_id>
+  python program/tools/rag_manage.py delete [memory_id]
   ```
 - **List RAG memories** (paginated):
   ```bash
@@ -31,6 +31,8 @@ RAG stores **query–answer pairs**: the first argument is the query (used for r
   ```
 
 ## 2. RAG Test / Comparison (Independent of Qwen)
+
+RAG 调用时，仅当**语义相似度 ≥ 0.7**（可通过 `--threshold` 调整）的记忆才会被注入 prompt。
 
 This tool does not load Qwen. It only performs retrieval and context comparison to show:
 - the difference between **with RAG** and **without RAG**
