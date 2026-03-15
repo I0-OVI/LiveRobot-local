@@ -32,7 +32,7 @@ if os.path.isdir(_qwen_model_dir):
 
 # Import path configuration utilities
 from utils.path_config import get_current_dir, get_model_paths
-from utils.tang_audio import detect_and_play_tang_audio, get_tang_task_completed_message
+from utils.tang_audio import detect_and_play_tang_audio, get_tang_task_completed_message, get_tang_overlay_image_path
 
 # Import core behavior/state management
 from core.behavior import BehaviorManager, State
@@ -602,6 +602,21 @@ class AIAgent:
         # 唐笑/唐哭：并行播放 wav + 生成文字，wav 播完后才能播 TTS
         tang_played, tang_done_event = detect_and_play_tang_audio(user_input)
         tang_context = get_tang_task_completed_message(tang_played) if tang_played else ""
+        
+        # 唐笑/唐哭时在 Live2D 头部显示贴图，wav 播完后移除
+        if tang_played and tang_done_event and self.window:
+            overlay_path = get_tang_overlay_image_path(tang_played)
+            if overlay_path:
+                win = self.window
+                if QTimer:
+                    QTimer.singleShot(0, lambda p=overlay_path: win.show_tang_overlay(p))
+                else:
+                    win.show_tang_overlay(overlay_path)
+                def _hide_when_done():
+                    tang_done_event.wait(timeout=30)
+                    if QTimer and win:
+                        QTimer.singleShot(0, win.hide_tang_overlay)
+                threading.Thread(target=_hide_when_done, daemon=True).start()
         
         # First detect keywords in user input, automatically trigger tool call
         print(f"[Keyword Detection] Detecting user input: '{user_input}'")

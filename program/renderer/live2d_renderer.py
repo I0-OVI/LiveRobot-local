@@ -6,7 +6,7 @@ import os
 import sys
 from PyQt5.QtWidgets import QOpenGLWidget
 from PyQt5.QtCore import Qt, QTimerEvent, QRect
-from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QBrush, QFontMetrics
+from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QBrush, QFontMetrics, QPixmap
 
 from utils.path_config import get_model_paths
 from core.behavior import State
@@ -119,6 +119,12 @@ class Live2DWidget(QOpenGLWidget):
         self.subtitle_scroll_delay = 60
         self.subtitle_keep_timer = 0
         self.subtitle_keep_duration = 600
+        
+        # 唐笑/唐哭 头部贴图：播放时覆盖在 Live2D 头部
+        self.tang_overlay_image = None  # QPixmap
+        self.tang_overlay_path = None
+        # 头部区域（占窗口比例），y 偏小表示更靠上
+        self.head_rect_ratio = (0.15, -0.05, 0.70, 0.45)  # (x, y, w, h)
         
         self.setWindowTitle("AI Desktop Pet - Live2D")
         self.setWindowFlags(
@@ -233,6 +239,9 @@ class Live2DWidget(QOpenGLWidget):
         
         if self.subtitle_text:
             self._draw_subtitle()
+        
+        if self.tang_overlay_image:
+            self._draw_tang_overlay()
     
     def _draw_subtitle(self):
         """Draw subtitle (after OpenGL rendering)"""
@@ -312,6 +321,38 @@ class Live2DWidget(QOpenGLWidget):
             if self.subtitle_keep_timer >= self.subtitle_keep_duration:
                 self.clear_subtitle()
     
+    def _draw_tang_overlay(self):
+        """在 Live2D 头部区域绘制唐笑/唐哭贴图，等比例缩放恰好覆盖头部"""
+        if not self.tang_overlay_image or self.tang_overlay_image.isNull():
+            return
+        
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        w, h = self.width(), self.height()
+        xr, yr, wr, hr = self.head_rect_ratio
+        head_x = int(w * xr)
+        head_y = int(h * yr)
+        head_w = int(w * wr)
+        head_h = int(h * hr)
+        
+        img_w = self.tang_overlay_image.width()
+        img_h = self.tang_overlay_image.height()
+        if img_w <= 0 or img_h <= 0:
+            painter.end()
+            return
+        
+        # 等比例缩小使图片适配头部区域，再缩小约一半
+        scale = min(1.0, head_w / img_w, head_h / img_h) * 0.5
+        draw_w = int(img_w * scale)
+        draw_h = int(img_h * scale)
+        draw_x = head_x + (head_w - draw_w) // 2
+        draw_y = head_y + (head_h - draw_h) // 2
+        painter.drawPixmap(QRect(draw_x, draw_y, draw_w, draw_h), self.tang_overlay_image,
+                           QRect(0, 0, img_w, img_h))
+        painter.end()
+    
     def _update_subtitle_lines(self, painter=None):
         """Update subtitle line list (auto-wrap based on window width)"""
         if not self.subtitle_text:
@@ -363,6 +404,24 @@ class Live2DWidget(QOpenGLWidget):
         self.subtitle_scroll_timer = 0
         self.subtitle_keep_timer = 0
         self.subtitle_lines = []
+        self.update()
+    
+    def show_tang_overlay(self, image_path: str):
+        """显示唐笑/唐哭头部贴图，等比例缩放覆盖头部"""
+        if not image_path or not os.path.isfile(image_path):
+            return
+        try:
+            self.tang_overlay_image = QPixmap(image_path)
+            self.tang_overlay_path = image_path
+            if not self.tang_overlay_image.isNull():
+                self.update()
+        except Exception as e:
+            print(f"[Live2D] 加载唐笑贴图失败: {e}")
+    
+    def hide_tang_overlay(self):
+        """隐藏唐笑/唐哭头部贴图"""
+        self.tang_overlay_image = None
+        self.tang_overlay_path = None
         self.update()
     
     def clear_subtitle(self, immediate=False):

@@ -23,6 +23,23 @@ def get_wav_dir() -> str:
     return os.path.join(get_project_root(), "wav")
 
 
+# 唐笑/唐哭 对应 picture 文件夹中的贴图（覆盖在 Live2D 头部）
+TANG_OVERLAY_IMAGES = {
+    "唐笑": "爱音大笑.png",
+    "唐哭": "爱音唐哭.png",  # 若无则需用户添加
+}
+
+
+def get_tang_overlay_image_path(keyword: str) -> Optional[str]:
+    """获取唐笑/唐哭对应的头部贴图路径"""
+    fname = TANG_OVERLAY_IMAGES.get(keyword)
+    if not fname:
+        return None
+    from utils.path_config import get_project_root
+    path = os.path.join(get_project_root(), "picture", fname)
+    return path if os.path.isfile(path) else None
+
+
 def _find_audio_for_keyword(wav_dir: str, keyword: str) -> Optional[str]:
     """
     在 wav 目录中查找包含关键词的音频文件

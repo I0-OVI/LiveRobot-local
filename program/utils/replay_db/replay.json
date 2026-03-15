@@ -118,9 +118,51 @@
       "assistant_response": "好的，Carambola。给你一个大大的笑容！",
       "timestamp": "2026-03-15T12:04:13.159879",
       "token_count": 32
+    },
+    {
+      "turn_id": 18,
+      "user_input": "唐笑以下",
+      "assistant_response": "好的，Carambola。给你一个大大的笑容！",
+      "timestamp": "2026-03-15T18:50:13.669729",
+      "token_count": 31
+    },
+    {
+      "turn_id": 19,
+      "user_input": "唐笑一下",
+      "assistant_response": "好的，Carambola。给你一个大大的笑容！",
+      "timestamp": "2026-03-15T19:04:23.865826",
+      "token_count": 32
+    },
+    {
+      "turn_id": 20,
+      "user_input": "晚上好",
+      "assistant_response": "晚安，Carambola。有什么我能为你做的吗？",
+      "timestamp": "2026-03-15T19:04:40.700676",
+      "token_count": 36
+    },
+    {
+      "turn_id": 21,
+      "user_input": "唐笑一下",
+      "assistant_response": "好的，Carambola。给你一个大大的笑容！",
+      "timestamp": "2026-03-15T19:08:17.176487",
+      "token_count": 32
+    },
+    {
+      "turn_id": 22,
+      "user_input": "唐笑一下",
+      "assistant_response": "好的，Carambola。给你一个大大的笑容！",
+      "timestamp": "2026-03-15T19:10:12.333096",
+      "token_count": 32
+    },
+    {
+      "turn_id": 23,
+      "user_input": "唐笑一下",
+      "assistant_response": "好的，Carambola。给你一个大大的笑容！",
+      "timestamp": "2026-03-15T19:14:40.468138",
+      "token_count": 32
     }
   ],
-  "total_tokens": 798,
+  "total_tokens": 993,
   "max_turns": 50,
-  "updated_at": "2026-03-15T12:04:26.576218"
+  "updated_at": "2026-03-15T19:14:40.468138"
 }
