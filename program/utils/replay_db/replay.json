@@ -97,9 +97,30 @@
       "assistant_response": "我不知道Carambola喜欢看什么样的书，因为我不太了解他。但是，你可以尝试问他这个问题，看看他会怎么回答。",
       "timestamp": "2026-03-01T12:46:22.505847",
       "token_count": 79
+    },
+    {
+      "turn_id": 15,
+      "user_input": "Carambola喜欢看什么种类的书",
+      "assistant_response": "我记得Carambola比较喜欢阅读自传类",
+      "timestamp": "2026-03-01T12:51:23.090103",
+      "token_count": 44
+    },
+    {
+      "turn_id": 16,
+      "user_input": "唐笑一下",
+      "assistant_response": "好的，Carambola。给你一个大大的笑容！",
+      "timestamp": "2026-03-15T11:39:34.302439",
+      "token_count": 32
+    },
+    {
+      "turn_id": 17,
+      "user_input": "唐笑一下",
+      "assistant_response": "好的，Carambola。给你一个大大的笑容！",
+      "timestamp": "2026-03-15T12:04:13.159879",
+      "token_count": 32
     }
   ],
-  "total_tokens": 690,
+  "total_tokens": 798,
   "max_turns": 50,
-  "updated_at": "2026-03-01T12:46:33.323863"
+  "updated_at": "2026-03-15T12:04:26.576218"
 }

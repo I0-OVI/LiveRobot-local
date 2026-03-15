@@ -32,6 +32,7 @@ if os.path.isdir(_qwen_model_dir):
 
 # Import path configuration utilities
 from utils.path_config import get_current_dir, get_model_paths
+from utils.tang_audio import detect_and_play_tang_audio, get_tang_task_completed_message
 
 # Import core behavior/state management
 from core.behavior import BehaviorManager, State
@@ -598,6 +599,10 @@ class AIAgent:
             self._safe_set_state(AgentState.IDLE, "idle")
             return
         
+        # 唐笑/唐哭：并行播放 wav + 生成文字，wav 播完后才能播 TTS
+        tang_played, tang_done_event = detect_and_play_tang_audio(user_input)
+        tang_context = get_tang_task_completed_message(tang_played) if tang_played else ""
+        
         # First detect keywords in user input, automatically trigger tool call
         print(f"[Keyword Detection] Detecting user input: '{user_input}'")
         tool_call = self.text_generator.tool_manager.detect_tool_call(user_input)
@@ -666,18 +671,20 @@ class AIAgent:
                 self._safe_set_state(AgentState.IDLE, "idle")
                 return
         
-        # Choose generation method
+        # Choose generation method（文字生成与 wav 并行，TTS 等 wav 播完再播）
         if self.use_streaming:
-            self._generate_response_streaming(user_input)
+            self._generate_response_streaming(user_input, tang_context=tang_context, tang_done_event=tang_done_event)
         else:
-            self._generate_response_non_streaming(user_input)
+            self._generate_response_non_streaming(user_input, tang_context=tang_context, tang_done_event=tang_done_event)
     
-    def _generate_response_streaming(self, user_input: str):
+    def _generate_response_streaming(self, user_input: str, tang_context: str = "", tang_done_event=None):
         """
         Generate reply using streaming inference (starts in thinking state, switches to talk and outputs after completion)
         
         Args:
             user_input: User input text
+            tang_context: 若用户说了唐笑/唐哭且已播放，此处为任务完成提示前缀
+            tang_done_event: 唐笑/唐哭 wav 播完时 set，TTS 需等待此事件后再播
         """
         def stream_generation():
             try:
@@ -690,6 +697,7 @@ class AIAgent:
                 
                 full_response = ""
                 first_chunk = True  # 标记是否是第一个片段
+                tang_tts_waited = False  # 是否已等待唐笑/唐哭 wav 播完（仅需等一次）
                 
                 # 重置语音合成的流式缓冲区
                 if self.voice_synthesis:
@@ -702,7 +710,7 @@ class AIAgent:
                 # Get context from memory (Replay + RAG or Replay-only)
                 replay_history = []
                 enhanced_prompt = None
-                prompt_to_model = user_input  # 传入模型的当前轮问题（无 RAG 时=原输入）
+                prompt_to_model = tang_context + user_input  # 若有唐笑/唐哭已播放，先加任务完成提示
                 if self.memory_coordinator:
                     try:
                         replay_history, rag_memories, enhanced_prompt, rag_used = self.memory_coordinator.get_context_for_generation(user_input)
@@ -710,7 +718,7 @@ class AIAgent:
                         if enhanced_prompt:
                             system_prompt = self.text_generator._get_system_prompt(user_input)
                             # RAG 放在当前用户问题前（紧邻生成点），模型更易使用；system 仅 base+role
-                            prompt_to_model = enhanced_prompt + "\n\n用户问：" + user_input
+                            prompt_to_model = enhanced_prompt + "\n\n" + tang_context + "用户问：" + user_input
                             enhanced_prompt = system_prompt  # 仅 system，不再拼 RAG
                             print(f"[Memory] Using {len(replay_history)} replay turns and {len(rag_memories)} RAG memories")
                             for m in rag_memories:
@@ -754,30 +762,32 @@ class AIAgent:
                             self.text_output_queue.put(("partial", clean_response))
                             
                             # 流式语音合成：在流式推理过程中就开始语音合成
-                            # 每次增量文本到达时都触发语音合成检查
+                            # TTS 须在唐笑/唐哭 wav 播完后才能播
                             if self.voice_synthesis:
-                                # 传递当前完整文本和是否结束标志（使用清理后的文本）
+                                if tang_done_event and not tang_tts_waited:
+                                    tang_done_event.wait(timeout=30)
+                                    tang_tts_waited = True
                                 self.voice_synthesis.synthesize_and_play_streaming(clean_response, is_final=False)
                 except AttributeError as e:
                     # 流式推理失败（通常是 transformers_stream_generator 兼容性问题）
                     if '_validate_model_class' in str(e):
                         # 回退到非流式推理
-                        prompt_to_model_fb = user_input
+                        prompt_to_model_fb = tang_context + user_input
                         if self.memory_coordinator:
                             try:
                                 replay_history, rag_memories, enhanced_prompt, rag_used = self.memory_coordinator.get_context_for_generation(user_input)
                                 self.conversation_history = replay_history
                                 if enhanced_prompt:
                                     system_prompt = self.text_generator._get_system_prompt(user_input)
-                                    prompt_to_model_fb = enhanced_prompt + "\n\n用户问：" + user_input
+                                    prompt_to_model_fb = enhanced_prompt + "\n\n" + tang_context + "用户问：" + user_input
                                     enhanced_prompt = system_prompt
                             except Exception as e:
                                 print(f"[Memory] Error getting context: {e}")
                                 enhanced_prompt = None
-                                prompt_to_model_fb = user_input
+                                prompt_to_model_fb = tang_context + user_input
                         elif self.replay_memory:
                             self.conversation_history = self.replay_memory.get_replay_history()
-                            prompt_to_model_fb = user_input
+                            prompt_to_model_fb = tang_context + user_input
                         
                         response, updated_history = self.text_generator.chat(prompt_to_model_fb, self.conversation_history, enhanced_prompt=enhanced_prompt)
                         self.conversation_history = updated_history
@@ -841,7 +851,9 @@ class AIAgent:
                 # 流式推理完成，发送最终文本给语音模块
                 # 注意：在流式过程中已经分段合成了，这里只需要处理剩余部分
                 if full_response and len(full_response.strip()) > 0 and self.voice_synthesis:
-                    # 发送最终文本，标记为 is_final=True，确保所有剩余文本都被合成
+                    if tang_done_event and not tang_tts_waited:
+                        tang_done_event.wait(timeout=30)
+                        tang_tts_waited = True
                     clean_full_response = self.text_generator.tool_manager.remove_tool_markers(full_response)
                     self.voice_synthesis.synthesize_and_play_streaming(clean_full_response, is_final=True)
                 
@@ -856,12 +868,14 @@ class AIAgent:
         generation_thread = threading.Thread(target=stream_generation, daemon=True)
         generation_thread.start()
     
-    def _generate_response_non_streaming(self, user_input: str):
+    def _generate_response_non_streaming(self, user_input: str, tang_context: str = "", tang_done_event=None):
         """
         Generate reply using non-streaming inference (generates in thinking state, switches to talk after completion)
         
         Args:
             user_input: User input text
+            tang_context: 若用户说了唐笑/唐哭且已播放，此处为任务完成提示前缀
+            tang_done_event: 唐笑/唐哭 wav 播完时 set，TTS 需等待此事件后再播
         """
         def generation():
             try:
@@ -874,7 +888,7 @@ class AIAgent:
                 # Get context from memory (Replay + RAG or Replay-only)
                 replay_history = []
                 enhanced_prompt = None
-                prompt_to_model = user_input
+                prompt_to_model = tang_context + user_input  # 若有唐笑/唐哭已播放，先加任务完成提示
                 if self.memory_coordinator:
                     try:
                         replay_history, rag_memories, enhanced_prompt, rag_used = self.memory_coordinator.get_context_for_generation(user_input)
@@ -882,7 +896,7 @@ class AIAgent:
                         if enhanced_prompt:
                             system_prompt = self.text_generator._get_system_prompt(user_input)
                             # RAG 放在当前用户问题前（紧邻生成点），模型更易使用；system 仅 base+role
-                            prompt_to_model = enhanced_prompt + "\n\n用户问：" + user_input
+                            prompt_to_model = enhanced_prompt + "\n\n" + tang_context + "用户问：" + user_input
                             enhanced_prompt = system_prompt  # 仅 system，不再拼 RAG
                             print(f"[Memory] Using {len(replay_history)} replay turns and {len(rag_memories)} RAG memories")
                             for m in rag_memories:
@@ -947,16 +961,15 @@ class AIAgent:
                 # 将完整文本放入队列
                 self.text_output_queue.put(("complete", clean_response))
                 
-                # 文字生成完成后，立即发送给语音模块进行语音合成
-                # 这样可以在文字显示的同时开始语音合成，减少延迟
+                # 文字生成完成后，发送给语音模块。若刚播完唐笑/唐哭，须等 wav 播完再播 TTS
                 if clean_response and len(clean_response.strip()) > 0:
                     if self.voice_synthesis:
+                        if tang_done_event:
+                            tang_done_event.wait(timeout=30)
                         # 检测语言并设置语音合成语言（使用清理后的文本）
                         detected_lang = self.detect_language(clean_response)
                         if detected_lang != self.voice_synthesis.language:
                             self.voice_synthesis.set_language(detected_lang)
-                        
-                        # 异步合成并播放语音（不阻塞文本输出，使用清理后的文本）
                         print(f"[Voice Output] Text generation completed, starting voice synthesis: '{clean_response[:50]}...'")
                         self.voice_synthesis.synthesize_and_play(clean_response)
                     else:
@@ -1199,12 +1212,12 @@ class AIAgent:
                     
                     # 如果启用流式推理，在 thinking 状态下开始生成
                     if self.use_streaming:
-                        # 在后台线程中开始流式生成
+                        # 在后台线程中开始流式生成（经 _generate_response 统一处理，含唐笑/唐哭检测）
                         print(f"[Listening Loop] Using streaming inference, preparing to generate")
                         print(f"[Listening Loop] Recognized text: '{result.text}'")
                         def start_streaming():
                             print(f"[Listening Loop] Streaming generation thread started")
-                            self._generate_response_streaming(result.text)
+                            self._generate_response(result.text)
                         threading.Thread(target=start_streaming, daemon=True).start()
                     else:
                         # Non-streaming: generate directly (will switch to talk when output starts)
