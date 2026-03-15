@@ -11,6 +11,7 @@ If you want to quickly try it out, just clone this repository, install the depen
 |AI communication(Qwen model)                   | ✅  |
 |Streaming text generation                      | ✅  |
 |Personality Setting (System and Dynamic prompt)| ✅  |
+|Anon's Laughing and Crying                     | ✅  |
 |Tools like weather searching                   | 🚧  |
 |Short-term Memory (Replay)                     | 🚧  | 
 |Long-term Memory (RAG)                         | 🚧  | 
@@ -20,6 +21,14 @@ If you want to quickly try it out, just clone this repository, install the depen
 Notes
 - ✅ means a feature that is currently available and working properly.
 - 🚧 indicates a feature that is planned, under development, or requires further optimization.
+
+PS.
+
+Anon is Anon Chihaya. Anon Chihaya is a fictional character from the anime BanG Dream! It's MyGO!!!!!, part of the BanG Dream! franchise. She is the guitarist of the band MyGO!!!!!.
+<p align ='center'>
+<img src="./picture/爱音大笑.png" width="80">
+<img src="./picture/爱音斯坦.jpg" width="70">
+
 
 ## Limitations
 This subject is supported by open weights model. Even if we implement different prompt and add the memory, the answer is still stiff meaning differ from the normal speech. Perhaps the better model or having training could relieve this.

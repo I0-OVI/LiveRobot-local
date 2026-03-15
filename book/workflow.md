@@ -118,3 +118,34 @@ Replay is relatively straightforward to implement: it involves storing recent co
 Consider the two sentences 'My native language is Chinese.' and 'I always talk in Chinese.' At a quick glance, they may appear similar, since in many cases a person’s native language is also the one they use most often. Since embedding models capture structured *semantic differences* rather than relying on *intuition*, these two sentences may not be close in vector space, which means a query phrased in one way may fail to retrieve information written in the other form.
 
 A similar issue appears with words like 'me' and 'user'. In a debugging context, they may refer to the same person, but semantically they are not equivalent.  If the stored knowledge uses one form and the query uses the other, the system may not recognize them as related. To make retrieval more reliable, we need to normalize these variations before querying. This means mapping different surface expressions, such as pronouns and role labels, into a shared representation that matches the context of the application. This process is known as Query Canonicalization.
+
+
+### Anon's Laughing and Crying
+There are many related videos on Bilibili. Since we only need the sound effects from these videos, we extract the audio directly from the video links. We use the `yt-dlp` library to download and extract the audio from a given URL, which generates an `.m4a` audio file.
+
+Open your terminal and run the following command:
+
+```cmd
+yt-dlp -f bestaudio "https://www.bilibili.com/video/BV...."
+```
+
+Here, `BV....` represents the BV number of the video.
+
+The extracted audio file is usually in `.m4a` format. However, we cannot directly use this format in our system, so we convert it to `.wav` format using `ffmpeg`.
+
+You can download `ffmpeg` from the following website: https://ffmpeg.org/download.html
+
+**Convert `.m4a` to `.wav`**
+```cmd
+ffmpeg -i input.m4a output.wav
+```
+This command converts the `.m4a` audio file into `.wav` format.
+
+**Crop the Audio**
+```cmd
+ffmpeg -i input.wav -ss 00:00:02 -to 00:00:05 -c copy output.wav
+```
+This command extracts the audio segment from 2 seconds to 5 seconds of the original audio file.
+
+
+
