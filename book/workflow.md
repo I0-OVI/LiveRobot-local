@@ -147,5 +147,6 @@ ffmpeg -i input.wav -ss 00:00:02 -to 00:00:05 -c copy output.wav
 ```
 This command extracts the audio segment from 2 seconds to 5 seconds of the original audio file.
 
-
+Before using `ffmpeg` directly in the terminal, we need to add it to the system `PATH`.  
+Otherwise, we must use the `cd` command to navigate to the directory containing the `.exe` file before running it.
 
