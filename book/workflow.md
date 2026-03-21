@@ -106,18 +106,24 @@ A dedicated function is implemented to determine whether a tool should be trigge
 It is important to emphasize that the API calls are handled entirely by the application layer rather than the language model itself. Although allowing the model to directly call external APIs may seem similar, it effectively grants the model control over system-level operations, which is difficult to manage and potentially unsafe. 
 
 ### Memory
-🚧
-#### Short-term Memory(Replay)
+
+The runtime flow is: **load short-term context → optionally retrieve long-term chunks → generate → append to replay → long-term write happens in the background.** `MemoryCoordinator` ties these steps together; finer options sit in `program/ai/memory` and `setup.txt` under `RAG_OPTIONS`.
+
+#### Short-term memory (Replay)
+
 When using AI assistants such as ChatGPT, the model reviews recent conversation history when generating new responses. For example, when you ask a follow-up question, the system implicitly reviews the latest dialogue to maintain coherence. This mechanism is commonly referred to as replay.
 
 Replay is relatively straightforward to implement: it involves storing recent conversation turns and feeding them back into the model as context for the next generation. However, it is constrained by the model’s context window. Therefore, only a limited number of recent interactions can be retained, which distinguishes short-term memory (replay) from long-term memory systems.
 
-#### Long-term Memory(RAG)
+#### Long-term memory (RAG)
+
 **RAG testing**
 
 Consider the two sentences 'My native language is Chinese.' and 'I always talk in Chinese.' At a quick glance, they may appear similar, since in many cases a person’s native language is also the one they use most often. Since embedding models capture structured *semantic differences* rather than relying on *intuition*, these two sentences may not be close in vector space, which means a query phrased in one way may fail to retrieve information written in the other form.
 
-A similar issue appears with words like 'me' and 'user'. In a debugging context, they may refer to the same person, but semantically they are not equivalent.  If the stored knowledge uses one form and the query uses the other, the system may not recognize them as related. To make retrieval more reliable, we need to normalize these variations before querying. This means mapping different surface expressions, such as pronouns and role labels, into a shared representation that matches the context of the application. This process is known as Query Canonicalization.
+A similar issue appears with words like 'me' and 'user'. In a debugging context, they may refer to the same person, but semantically they are not equivalent. If the stored knowledge uses one form and the query uses the other, the system may not recognize them as related. To make retrieval more reliable, we need to normalize these variations before querying. This means mapping different surface expressions, such as pronouns and role labels, into a shared representation that matches the context of the application. This process is known as Query Canonicalization.
+
+Long-term side uses a vector store and embeddings. Before each reply, a trigger decides whether to search (keywords, optional extra LLM pass, or always retrieve); results are merged into the prompt when relevant. After the reply, replay is updated right away; indexing into long-term storage is deferred (background worker or per-turn thread). Memory-related LLM calls and the main reply share a **single inference queue** so they run one after another on the GPU instead of in parallel.
 
 
 ### Anon's Laughing and Crying
