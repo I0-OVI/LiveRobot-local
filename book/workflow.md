@@ -126,6 +126,25 @@ A similar issue appears with words like 'me' and 'user'. In a debugging context,
 Long-term side uses a vector store and embeddings. Before each reply, a trigger decides whether to search (keywords, optional extra LLM pass, or always retrieve); results are merged into the prompt when relevant. After the reply, replay is updated right away; indexing into long-term storage is deferred (background worker or per-turn thread). Memory-related LLM calls and the main reply share a **single inference queue** so they run one after another on the GPU instead of in parallel.
 
 
+### Thread management
+
+The program is **multi-threaded by necessity**: the GUI must stay responsive, microphone I/O and recognition block, and the LLM is slow. The idea is to **keep Qt and Live2D on the main thread**, push blocking work to **short-lived or dedicated background threads**, and use **queues** where two threads exchange data so ordering stays explicit.
+
+**Main thread (GUI mode)** runs the Qt event loop: window updates, subtitle widgets, dialog buttons, and (via `QTimer` / signals) safe updates to behavior state so Live2D does not fight with worker threads.
+
+**Voice input** uses a **background thread** for recording and recognition; when text is ready, it hands the result back to the main thread through a **Qt signal** (or a timer callback fallback) so the next step does not block the UI. In **console-only** mode, a **listening loop thread** can run instead of the dialog.
+
+**Each user turn** typically starts a **generation thread**: it loads memory context, calls **`chat_stream`** (which itself is fed by the inference worker—see below), fills a **`text_output_queue`**, and drives TTS from that thread as tokens arrive. A separate **output thread** **consumes** that queue to refresh subtitles and detect completion; finishing output returns the visible state toward **idle** on the main thread again. If a new turn starts while the old output is still running, the older output path is **forcibly torn down** first so queues and state do not accumulate garbage.
+
+**Qwen inference** does not run from arbitrary threads. **`QwenTextGenerator`** keeps **one daemon worker** reading a **FIFO job queue**: every `chat` and every streaming job is executed there in order. Anything that needs the model—main reply, optional RAG trigger LLM, save-side LLM, etc.—**waits in line** behind that queue. That avoids undefined GPU concurrency; the trade-off is that a heavy background job can **delay** the next user-visible generation slightly.
+
+**Long-term memory writes** run **after** the reply path: either a **single RAG save worker** draining its own queue, or **one daemon thread per save**, depending on configuration. That is separate from the Qwen queue but still **feeds** into it when those paths call `chat`.
+
+**TTS** is discussed under **User Interface → Output**: parallel synthesis threads may exist for smoother playback; they are **indexed** so audio still plays in order.
+
+**Miscellaneous** small daemons (e.g. waiting on a sound effect then hiding an overlay) follow the same pattern: **short background thread + signal or timer back to Qt**, without touching the model.
+
+
 ### Anon's Laughing and Crying
 There are many related videos on Bilibili. Since we only need the sound effects from these videos, we extract the audio directly from the video links. We use the `yt-dlp` library to download and extract the audio from a given URL, which generates an `.m4a` audio file.
 
