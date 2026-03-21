@@ -1,6 +1,6 @@
 """
 View stored conversations (Replay + RAG)
-Run from Reorganize directory: python -m ai.memory.view_memories
+Run from the program directory: python -m ai.memory.view_memories
 """
 import os
 import sys

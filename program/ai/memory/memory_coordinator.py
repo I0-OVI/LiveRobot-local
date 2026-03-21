@@ -2,6 +2,7 @@
 Memory coordinator module
 Coordinates Replay and RAG memory systems
 """
+import queue
 import threading
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
@@ -11,6 +12,7 @@ from .rag_memory import RAGMemory
 from .memory_summarizer import MemorySummarizer
 from .importance_calculator import ImportanceCalculator
 from .rag_trigger import RAGTrigger
+from .rag_save_evaluator import RAGSaveEvaluator
 
 
 class MemoryCoordinator:
@@ -34,8 +36,15 @@ class MemoryCoordinator:
         rag_auto_merge_every: int = 50,
         rag_allow_no_memories: bool = True,
         rag_use_llm_trigger: bool = False,
+        rag_llm_trigger_timeout_sec: Optional[float] = None,
+        rag_always_retrieve: bool = False,
+        rag_use_time_weight: bool = False,
+        rag_time_decay_days: int = 30,
         rag_user_name: Optional[str] = None,
-        text_generator=None
+        text_generator=None,
+        rag_use_llm_long_term_eval: bool = False,
+        rag_save_llm_timeout_sec: Optional[float] = None,
+        rag_use_save_worker: bool = True,
     ):
         """
         Initialize memory coordinator
@@ -56,9 +65,17 @@ class MemoryCoordinator:
             rag_merge_similarity_threshold: Similarity threshold for merging
             rag_auto_merge_every: Auto-merge after every N successful RAG saves (0 disables)
             rag_allow_no_memories: Allow no valid memories in RAG
-            rag_use_llm_trigger: If True, use LLM to decide when to use RAG (can block ~2–5s before first token). If False, only keyword-based trigger for smoother voice.
+            rag_use_llm_trigger: If True, use LLM to decide when to use RAG when keywords miss (adds latency before first token unless capped).
+            rag_llm_trigger_timeout_sec: Max seconds to wait for that LLM call (None = no limit). <= 0 disables Layer2 LLM (keywords only).
+            rag_always_retrieve: If True and the vector store is non-empty, always run retrieval; still only injects when similarity ≥ threshold.
+            rag_use_time_weight: If True, boost recent memories in retrieval (see MemoryRetriever).
+            rag_time_decay_days: Recency half-life style window for time weighting.
             rag_user_name: User name from setup.txt for RAG canonicalization (e.g. Carambola). If None, RAG uses default canonicalization only.
-            text_generator: Text generator for summary generation
+            text_generator: Text generator for summary generation and optional LLM RAG trigger
+            rag_use_llm_long_term_eval: If True, one LLM JSON call decides store_long_term + importance (async path; uses inference queue).
+            rag_save_llm_timeout_sec: Max seconds for save-side LLM (combined eval or importance-only). None = no limit.
+                If <= 0 while long_term_eval is True, combined eval is skipped (legacy importance LLM only, if enabled).
+            rag_use_save_worker: If True, enqueue RAG saves to a single daemon worker instead of spawning a thread per turn.
         """
         # Initialize Replay system
         self.replay = ReplayMemory(
@@ -75,6 +92,8 @@ class MemoryCoordinator:
             embedder_model=rag_embedder_model,
             top_k=rag_top_k,
             similarity_threshold=rag_similarity_threshold,
+            use_time_weight=rag_use_time_weight,
+            time_decay_days=rag_time_decay_days,
             importance_base_threshold=rag_importance_base_threshold,
             importance_max_memories=rag_importance_max_memories,
             merge_similarity_threshold=rag_merge_similarity_threshold,
@@ -90,18 +109,62 @@ class MemoryCoordinator:
         
         # Initialize importance calculator
         self.importance_calculator = ImportanceCalculator(text_generator=text_generator)
+
+        self.rag_save_evaluator = RAGSaveEvaluator(text_generator=text_generator)
         
         # Initialize RAG trigger (use_llm_judgment=False by default to avoid blocking stream start and voice stutter)
-        self.rag_trigger = RAGTrigger(text_generator=text_generator, use_llm_judgment=rag_use_llm_trigger)
+        self.rag_trigger = RAGTrigger(
+            text_generator=text_generator,
+            use_llm_judgment=rag_use_llm_trigger,
+            llm_judgment_timeout_sec=rag_llm_trigger_timeout_sec,
+        )
         
         # Periodic merge controls (to keep per-write latency low while still deduplicating)
         self.rag_auto_merge_every = max(0, int(rag_auto_merge_every))
         self._rag_save_count_since_merge = 0
         self._rag_merge_lock = threading.Lock()
         self.rag_similarity_threshold = rag_similarity_threshold  # 语义相似度>=0.7时使用该记忆
+        self.rag_always_retrieve = bool(rag_always_retrieve)
 
         self.text_generator = text_generator
-    
+        self.rag_use_llm_long_term_eval = bool(rag_use_llm_long_term_eval)
+        self.rag_save_llm_timeout_sec = rag_save_llm_timeout_sec
+        self.rag_use_save_worker = bool(rag_use_save_worker)
+
+        self._save_job_queue: queue.Queue = queue.Queue()
+        self._save_worker_thread: Optional[threading.Thread] = None
+        if self.rag_use_save_worker:
+            self._start_save_worker()
+
+    def _start_save_worker(self) -> None:
+        if self._save_worker_thread is not None and self._save_worker_thread.is_alive():
+            return
+
+        def loop():
+            while True:
+                job = self._save_job_queue.get()
+                try:
+                    self._save_to_rag(
+                        user_input=job["user_input"],
+                        assistant_response=job["assistant_response"],
+                        importance=job.get("importance"),
+                        tags=job.get("tags"),
+                        use_llm_evaluation=bool(job.get("use_llm_evaluation", True)),
+                    )
+                except Exception as e:
+                    print(f"[MemoryCoordinator] Save worker error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                finally:
+                    self._save_job_queue.task_done()
+
+        t = threading.Thread(
+            target=loop, daemon=True, name="rag_save_worker"
+        )
+        self._save_worker_thread = t
+        t.start()
+        print("[MemoryCoordinator] RAG save worker thread started (single-queue)")
+
     def get_context_for_generation(
         self,
         user_input: str,
@@ -132,7 +195,11 @@ class MemoryCoordinator:
         rag_memories = []
         rag_used = False
         should_use_rag = force_use_rag
-        
+
+        if not should_use_rag and self.rag_always_retrieve and self.rag.count() > 0:
+            should_use_rag = True
+            print("[MemoryCoordinator] RAG triggered: always_retrieve (store non-empty)")
+
         if not should_use_rag:
             # Check if RAG should be triggered
             should_use_rag, trigger_reason = self.rag_trigger.should_use_rag(user_input)
@@ -198,25 +265,43 @@ class MemoryCoordinator:
         self.replay.add_turn(user_input, assistant_response)
         
         if async_save:
-            # Save RAG in background thread to avoid blocking
-            def save_rag_async():
-                try:
-                    self._save_to_rag(
-                        user_input=user_input,
-                        assistant_response=assistant_response,
-                        importance=importance,
-                        tags=tags,
-                        use_llm_evaluation=use_llm_evaluation
+            job = {
+                "user_input": user_input,
+                "assistant_response": assistant_response,
+                "importance": importance,
+                "tags": tags,
+                "use_llm_evaluation": use_llm_evaluation,
+            }
+            if self.rag_use_save_worker:
+                self._save_job_queue.put(job)
+                qsize = self._save_job_queue.qsize()
+                if qsize > 3:
+                    print(
+                        f"[MemoryCoordinator] RAG save queue depth={qsize} "
+                        "(waits for single worker + Qwen FIFO)"
                     )
-                except Exception as e:
-                    print(f"[MemoryCoordinator] Error in async RAG save: {e}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # Start background thread for RAG saving
-            rag_thread = threading.Thread(target=save_rag_async, daemon=True, name="rag_save_thread")
-            rag_thread.start()
-            print(f"[MemoryCoordinator] Started async RAG save thread (ID: {rag_thread.ident})")
+            else:
+                def save_rag_async():
+                    try:
+                        self._save_to_rag(
+                            user_input=user_input,
+                            assistant_response=assistant_response,
+                            importance=importance,
+                            tags=tags,
+                            use_llm_evaluation=use_llm_evaluation,
+                        )
+                    except Exception as e:
+                        print(f"[MemoryCoordinator] Error in async RAG save: {e}")
+                        import traceback
+                        traceback.print_exc()
+
+                rag_thread = threading.Thread(
+                    target=save_rag_async, daemon=True, name="rag_save_thread"
+                )
+                rag_thread.start()
+                print(
+                    f"[MemoryCoordinator] Started async RAG save thread (ID: {rag_thread.ident})"
+                )
         else:
             # Synchronous save (for backward compatibility)
             self._save_to_rag(
@@ -273,27 +358,106 @@ class MemoryCoordinator:
             print(f"[RAG] Skipped saving non-answer response (e.g. 不知道/不了解)")
             return
 
-        # Calculate importance if not provided
         calculated_importance = importance
-        importance_details = {}
-        
-        if calculated_importance is None and use_llm_evaluation and self.importance_calculator:
-            try:
-                print(f"[MemoryCoordinator] Calculating importance in background thread...")
-                calculated_importance, importance_details = self.importance_calculator.calculate_importance(
+        importance_details: Dict = {}
+        merged_tags = list(tags) if tags else []
+
+        # Explicit importance (e.g. tool calls): skip all save-side LLM gates
+        if calculated_importance is not None:
+            pass
+        elif (
+            self.rag_use_llm_long_term_eval
+            and use_llm_evaluation
+            and self.rag_save_evaluator
+            and self.text_generator
+        ):
+            # <= 0 disables combined JSON eval → fall through to importance-only LLM
+            use_combined = (
+                self.rag_save_llm_timeout_sec is None
+                or self.rag_save_llm_timeout_sec > 0
+            )
+            if use_combined:
+                tout = (
+                    self.rag_save_llm_timeout_sec
+                    if self.rag_save_llm_timeout_sec is not None
+                    and self.rag_save_llm_timeout_sec > 0
+                    else None
+                )
+                print(
+                    "[MemoryCoordinator] Long-term save eval (single LLM JSON) "
+                    f"timeout_sec={tout}"
+                )
+                eval_result = self.rag_save_evaluator.evaluate(
                     user_input=user_input,
                     assistant_response=assistant_response,
-                    fallback_importance=1.0
+                    timeout_sec=tout,
+                    fallback_importance=0.7,
                 )
-                print(f"[MemoryCoordinator] Calculated importance: {calculated_importance:.2f}")
+                print(
+                    f"[MemoryCoordinator] Save eval: store={eval_result.store_long_term} "
+                    f"imp={eval_result.importance:.2f} source={eval_result.source} "
+                    f"reason={eval_result.reason[:80]!r}"
+                )
+                if not eval_result.store_long_term:
+                    print("[MemoryCoordinator] Skipped long-term RAG (LLM store_long_term=false)")
+                    return
+                calculated_importance = eval_result.importance
+                for t in eval_result.tags:
+                    if t and t not in merged_tags:
+                        merged_tags.append(t)
+            elif use_llm_evaluation and self.importance_calculator:
+                tout = (
+                    self.rag_save_llm_timeout_sec
+                    if self.rag_save_llm_timeout_sec is not None
+                    and self.rag_save_llm_timeout_sec > 0
+                    else None
+                )
+                try:
+                    print(f"[MemoryCoordinator] Calculating importance (legacy LLM)...")
+                    calculated_importance, importance_details = (
+                        self.importance_calculator.calculate_importance(
+                            user_input=user_input,
+                            assistant_response=assistant_response,
+                            fallback_importance=1.0,
+                            timeout_sec=tout,
+                        )
+                    )
+                    print(
+                        f"[MemoryCoordinator] Calculated importance: {calculated_importance:.2f}"
+                    )
+                    if importance_details:
+                        print(f"[MemoryCoordinator] Details: {importance_details}")
+                except Exception as e:
+                    print(f"[MemoryCoordinator] Error calculating importance: {e}")
+                    calculated_importance = 1.0
+        elif use_llm_evaluation and self.importance_calculator:
+            tout = (
+                self.rag_save_llm_timeout_sec
+                if self.rag_save_llm_timeout_sec is not None
+                and self.rag_save_llm_timeout_sec > 0
+                else None
+            )
+            try:
+                print(f"[MemoryCoordinator] Calculating importance in background...")
+                calculated_importance, importance_details = (
+                    self.importance_calculator.calculate_importance(
+                        user_input=user_input,
+                        assistant_response=assistant_response,
+                        fallback_importance=1.0,
+                        timeout_sec=tout,
+                    )
+                )
+                print(
+                    f"[MemoryCoordinator] Calculated importance: {calculated_importance:.2f}"
+                )
                 if importance_details:
                     print(f"[MemoryCoordinator] Details: {importance_details}")
             except Exception as e:
                 print(f"[MemoryCoordinator] Error calculating importance: {e}")
-                calculated_importance = 1.0  # Fallback
-        
+                calculated_importance = 1.0
+
         if calculated_importance is None:
-            calculated_importance = 1.0  # Final fallback
+            calculated_importance = 1.0
         
         # Save to RAG with importance check (long-term memory)
         # Avoid per-write merge to keep single-write latency low.
@@ -301,7 +465,7 @@ class MemoryCoordinator:
             user_input=user_input,
             assistant_response=assistant_response,
             importance=calculated_importance,
-            tags=tags,
+            tags=merged_tags if merged_tags else tags,
             auto_merge=False
         )
 
@@ -379,18 +543,35 @@ class MemoryCoordinator:
         """
         return self.replay.get_replay_history(token_budget=token_budget)
     
-    def get_rag_memories(self, query_text: str, top_k: Optional[int] = None) -> List[Dict]:
+    def get_rag_memories(
+        self,
+        query_text: str,
+        top_k: Optional[int] = None,
+        similarity_threshold: Optional[float] = None,
+    ) -> List[Dict]:
         """
-        Get RAG memories for a query
-        
-        Args:
-            query_text: Query text
-            top_k: Top-k (uses default if None)
-        
-        Returns:
-            List of relevant memories
+        Get RAG memories for a query (no trigger gate; use for tools / RAGIntegration).
         """
-        return self.rag.get_relevant_memories(query_text=query_text, top_k=top_k)
+        return self.rag.get_relevant_memories(
+            query_text=query_text,
+            top_k=top_k,
+            similarity_threshold=similarity_threshold,
+        )
+
+    def cleanup_old_memories(
+        self,
+        days: Optional[int] = None,
+        max_memories: Optional[int] = None,
+        min_importance: float = 0.0,
+    ) -> int:
+        """Delegate to RAG long-term store (same semantics as legacy MemoryManager)."""
+        return self.rag.cleanup_old_memories(
+            days=days, max_memories=max_memories, min_importance=min_importance
+        )
+
+    def clear_all_rag_memories(self) -> bool:
+        """Remove all vectors in the RAG collection."""
+        return self.rag.clear_all_memories()
     
     def clear_replay_session(self):
         """Clear current Replay session"""
@@ -414,12 +595,18 @@ class MemoryCoordinator:
     
     def persist(self):
         """Persist both systems"""
+        if self.rag_use_save_worker:
+            try:
+                self._save_job_queue.join()
+            except Exception:
+                pass
         self.replay._save()
         self.rag.persist()
     
     def set_text_generator(self, text_generator):
-        """Set text generator for summary generation and importance calculation"""
+        """Set text generator for summary generation, importance calculation, and optional LLM RAG trigger"""
         self.text_generator = text_generator
         self.summarizer.set_text_generator(text_generator)
         self.importance_calculator.set_text_generator(text_generator)
+        self.rag_save_evaluator.set_text_generator(text_generator)
         self.rag_trigger.set_text_generator(text_generator)

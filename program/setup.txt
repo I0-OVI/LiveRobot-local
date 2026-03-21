@@ -99,6 +99,25 @@ AI
 机器人
 # ---------- END FORBIDDEN_WORDS_ZH ----------
 
+# ---------- RAG_OPTIONS ----------
+# Optional RAG behavior (key=value). Booleans: true/false, 1/0, yes/no.
+# Omit a line to use built-in defaults. AIAgent() constructor args override these when set.
+# use_llm_trigger — after keyword check fails, ask the LLM whether to retrieve (adds latency before reply).
+# llm_trigger_timeout_sec — max seconds for that call (omit = no limit; 0 = disable Layer2 LLM).
+# always_retrieve — when the vector store has any memory, always run retrieval (still injects only if similarity ≥ threshold).
+# use_time_weight — favor newer memories in ranking (see ai/memory/README.md).
+# time_decay_days — window used with use_time_weight.
+# use_llm_long_term_eval — after each reply, one LLM JSON decides store_long_term + importance (async; shares Qwen queue).
+# save_llm_timeout_sec — max seconds for save-side LLM (combined eval or legacy importance). Omit = no limit. 0 with long_term eval on = legacy importance-only path.
+# use_save_worker — true = one background worker + queue for RAG saves; false = new thread per save.
+use_llm_trigger=false
+always_retrieve=false
+use_time_weight=false
+time_decay_days=30
+use_llm_long_term_eval=false
+use_save_worker=true
+# ---------- END RAG_OPTIONS ----------
+
 # ---------- FORBIDDEN_WORDS_EN ----------
 # One phrase per line. These phrases will be blocked in model output (English). Lines starting with # are ignored.
 as a

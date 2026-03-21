@@ -3,8 +3,11 @@ Qwen 7B 4bit quantized model text generation module
 Uses HuggingFace transformers and bitsandbytes for 4bit quantization loading
 """
 import os
+import queue
 import re
+import threading
 import torch
+from concurrent.futures import Future
 from typing import Optional, List, Tuple, Set
 from transformers import (
     AutoTokenizer, 
@@ -31,6 +34,51 @@ class ForbiddenWordsLogitsProcessor(LogitsProcessor):
             if token_id < scores.size(-1):
                 scores[:, token_id] = self.penalty
         return scores
+
+
+class _SyncChatJob:
+    """Runs _run_chat_direct on the inference worker thread."""
+
+    __slots__ = ("gen", "user_input", "history", "enhanced_prompt", "future")
+
+    def __init__(self, gen, user_input, history, enhanced_prompt, future):
+        self.gen = gen
+        self.user_input = user_input
+        self.history = history
+        self.enhanced_prompt = enhanced_prompt
+        self.future = future
+
+    def execute(self) -> None:
+        try:
+            out = self.gen._run_chat_direct(
+                self.user_input, self.history, self.enhanced_prompt
+            )
+            self.future.set_result(out)
+        except BaseException as e:
+            self.future.set_exception(e)
+
+
+class _StreamChatJob:
+    """Runs streaming generation on the worker; caller reads token_queue."""
+
+    __slots__ = ("gen", "user_input", "history", "enhanced_prompt", "out_q")
+
+    def __init__(self, gen, user_input, history, enhanced_prompt, out_q):
+        self.gen = gen
+        self.user_input = user_input
+        self.history = history
+        self.enhanced_prompt = enhanced_prompt
+        self.out_q = out_q
+
+    def execute(self) -> None:
+        try:
+            for piece in self.gen._iter_chat_stream_direct(
+                self.user_input, self.history, self.enhanced_prompt
+            ):
+                self.out_q.put(("chunk", piece))
+            self.out_q.put(("done", None))
+        except BaseException as e:
+            self.out_q.put(("error", e))
 
 
 class QwenTextGenerator:
@@ -75,7 +123,34 @@ class QwenTextGenerator:
             )
         else:
             self.quantization_config = None
+
+        # Single worker + queue: all model.chat / model.generate run on one thread (no cross-thread GPU calls)
+        self._task_queue: queue.Queue = queue.Queue()
+        self._inference_worker: Optional[threading.Thread] = None
     
+    def _start_inference_worker(self) -> None:
+        if self.model is None:
+            return
+        if self._inference_worker is not None and self._inference_worker.is_alive():
+            return
+
+        def loop():
+            while True:
+                job = self._task_queue.get()
+                try:
+                    job.execute()
+                finally:
+                    self._task_queue.task_done()
+
+        t = threading.Thread(target=loop, daemon=True, name="qwen_inference_worker")
+        self._inference_worker = t
+        t.start()
+
+    def _ensure_inference_worker(self) -> None:
+        if self.model is None or self.tokenizer is None:
+            raise RuntimeError("Model not loaded, please call load_model() first")
+        self._start_inference_worker()
+
     def _filter_forbidden_words(self, text: str) -> str:
         """Filter forbidden words"""
         filtered_text = text
@@ -241,6 +316,7 @@ class QwenTextGenerator:
             
             if self.model is not None:
                 self._fix_stream_generator_compatibility()
+                self._start_inference_worker()
         except Exception as e:
             raise RuntimeError(f"Model loading failed: {e}")
     
@@ -251,28 +327,26 @@ class QwenTextGenerator:
                 return True
             self.model._validate_model_class = _validate_model_class.__get__(self.model, type(self.model))
     
-    def chat(self, user_input: str, history: Optional[List[Tuple[str, str]]] = None, enhanced_prompt: Optional[str] = None) -> Tuple[str, List[Tuple[str, str]]]:
+    def _run_chat_direct(
+        self,
+        user_input: str,
+        history: Optional[List[Tuple[str, str]]] = None,
+        enhanced_prompt: Optional[str] = None,
+    ) -> Tuple[str, List[Tuple[str, str]]]:
         """
-        Chat interface, returns reply and updated history
-        
-        Args:
-            user_input: User input text
-            history: Conversation history
-            enhanced_prompt: Optional enhanced prompt from RAG system
-        
-        Returns:
-            Tuple of (response, updated_history)
+        Run model.chat on the current thread only. Used by the inference worker and stream fallback.
+        Do not call from arbitrary threads; public API is chat().
         """
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("Model not loaded, please call load_model() first")
-        
+
         if history is None:
             history = []
-        
+
         from transformers import GenerationConfig
-        
+
         generation_config = self.model.generation_config if hasattr(self.model, 'generation_config') else None
-        
+
         if generation_config:
             new_config = GenerationConfig.from_dict(generation_config.to_dict())
             new_config.max_new_tokens = 80
@@ -280,14 +354,14 @@ class QwenTextGenerator:
             new_config.repetition_penalty = 1.15
         else:
             new_config = None
-        
+
         system_prompt = self._get_system_prompt(user_input, enhanced_prompt=enhanced_prompt)
         logits_processor = self._create_logits_processor()
-        
+
         chat_kwargs = {}
         if logits_processor is not None:
             chat_kwargs['logits_processor'] = logits_processor
-        
+
         if new_config:
             response, updated_history = self.model.chat(
                 self.tokenizer,
@@ -308,40 +382,84 @@ class QwenTextGenerator:
                 repetition_penalty=1.15,
                 **chat_kwargs
             )
-        
+
         response = self._filter_forbidden_words(response)
         response, has_tool_call = self.tool_manager.process_response(response)
-        
+
         return response, updated_history
-    
-    def chat_stream(self, user_input: str, history: Optional[List[Tuple[str, str]]] = None, enhanced_prompt: Optional[str] = None):
+
+    def chat(
+        self,
+        user_input: str,
+        history: Optional[List[Tuple[str, str]]] = None,
+        enhanced_prompt: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> Tuple[str, List[Tuple[str, str]]]:
         """
-        Stream chat interface, yields incremental text
-        
+        Chat interface, returns reply and updated history.
+        Dispatches to a single inference worker thread (queue).
+
         Args:
             user_input: User input text
             history: Conversation history
             enhanced_prompt: Optional enhanced prompt from RAG system
-        
+            timeout: If set, max seconds to wait for the worker (raises concurrent.futures.TimeoutError)
+
+        Returns:
+            Tuple of (response, updated_history)
+        """
+        self._ensure_inference_worker()
+        if history is None:
+            history = []
+
+        fut: Future = Future()
+        self._task_queue.put(
+            _SyncChatJob(self, user_input, list(history), enhanced_prompt, fut)
+        )
+        if timeout is not None:
+            return fut.result(timeout=timeout)
+        return fut.result()
+
+    def chat_stream(self, user_input: str, history: Optional[List[Tuple[str, str]]] = None, enhanced_prompt: Optional[str] = None):
+        """
+        Stream chat interface, yields incremental text (worker produces tokens; this thread consumes).
+
+        Args:
+            user_input: User input text
+            history: Conversation history
+            enhanced_prompt: Optional enhanced prompt from RAG system
+
         Yields:
             Incremental response text
         """
-        if self.model is None or self.tokenizer is None:
-            raise RuntimeError("Model not loaded, please call load_model() first")
-        
+        self._ensure_inference_worker()
         if history is None:
             history = []
-        
-        try:
-            yield from self._chat_stream_with_streamer(user_input, history, enhanced_prompt=enhanced_prompt)
-        except Exception:
-            response, _ = self.chat(user_input, history, enhanced_prompt=enhanced_prompt)
-            yield response
-    
-    def _chat_stream_with_streamer(self, user_input: str, history: Optional[List[Tuple[str, str]]] = None, enhanced_prompt: Optional[str] = None):
+
+        out_q: queue.Queue = queue.Queue()
+        self._task_queue.put(
+            _StreamChatJob(self, user_input, list(history), enhanced_prompt, out_q)
+        )
+        while True:
+            msg = out_q.get()
+            kind = msg[0]
+            if kind == "chunk":
+                yield msg[1]
+            elif kind == "done":
+                break
+            elif kind == "error":
+                try:
+                    response, _ = self.chat(user_input, history, enhanced_prompt=enhanced_prompt)
+                    yield response
+                except Exception:
+                    raise msg[1]
+                break
+
+    def _iter_chat_stream_direct(self, user_input: str, history: Optional[List[Tuple[str, str]]] = None, enhanced_prompt: Optional[str] = None):
         """
-        Stream generation using TextIteratorStreamer
-        
+        Stream generation using TextIteratorStreamer (inference worker thread only).
+        On failure, falls back via _run_chat_direct (never queues another job).
+
         Args:
             user_input: User input text
             history: Conversation history
@@ -424,5 +542,7 @@ class QwenTextGenerator:
                 if response != full_response:
                     yield response
         except Exception:
-            response, _ = self.chat(user_input, history, enhanced_prompt=enhanced_prompt)
+            response, _ = self._run_chat_direct(
+                user_input, history, enhanced_prompt=enhanced_prompt
+            )
             yield response

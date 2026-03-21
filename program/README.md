@@ -1,11 +1,11 @@
-# Reorganize - AI Desktop Pet
+# Program - AI Desktop Pet
 
-Reorganized and modularized version of the AI Desktop Pet application.
+Modular AI Desktop Pet application (`program` package).
 
 ## Directory Structure
 
 ```
-Reorganize/
+program/
 ├── core/           # Core modules (behavior management, state management)
 ├── ui/             # UI modules (subtitle window, voice input dialog, Live2D widget)
 ├── voice/          # Voice modules (recognition, synthesis)
@@ -77,9 +77,11 @@ The application will automatically search for model files in these locations.
 ## Running the Application
 
 ```bash
-cd Reorganize
+cd program
 python main.py
 ```
+
+Memory (Replay + RAG): see `ai/memory/README.md` and `tools/README_RAG_tools.md`. Optional toggles live in `setup.txt` under **`RAG_OPTIONS`**.
 
 ## Module Dependencies
 

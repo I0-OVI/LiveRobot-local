@@ -3,6 +3,7 @@ RAG trigger module
 Determines when to use RAG based on user input patterns
 """
 import re
+from concurrent.futures import TimeoutError as FuturesTimeout
 from typing import Optional, Tuple
 
 
@@ -18,25 +19,37 @@ class RAGTrigger:
     # Layer 1: First-layer keywords (specific memory-related phrases)
     # If any of these appear, use RAG directly without LLM judgment
     LAYER1_KEYWORDS = [
-        # Chinese: temporal/history
+        # Chinese: temporal / recall
         "之前", "刚才", "我们说过", "以前", "之前的", "原来那个",
+        "记得", "还记得", "记不记得", "上次", "上回", "哪天", "什么时候说过",
+        "你说过", "我说过", "提过", "聊过",
         # Chinese: user preference / self info (often stored in RAG)
         "喜欢什么", "偏好", "爱好", "叫什么", "住在哪", "母语",
         "喜欢看", "喜欢读", "喜欢听",
-        # English
-        "my preference", "we decided", "what do I like", "my name"
+        # English: recall / history
+        "my preference", "we decided", "what do I like", "my name",
+        "remember", "recall", "last time", "you said", "we talked",
+        "did we", "have we discussed", "as I mentioned",
     ]
     
-    def __init__(self, text_generator=None, use_llm_judgment: bool = True):
+    def __init__(
+        self,
+        text_generator=None,
+        use_llm_judgment: bool = True,
+        llm_judgment_timeout_sec: Optional[float] = None,
+    ):
         """
         Initialize RAG trigger
         
         Args:
             text_generator: Text generator for LLM-based judgment (optional)
             use_llm_judgment: Whether to use LLM for judgment (default: True)
+            llm_judgment_timeout_sec: Max seconds to wait for Layer2 LLM (via text_generator.chat timeout).
+                None = no timeout. <= 0 disables Layer2 LLM (keywords only).
         """
         self.text_generator = text_generator
         self.use_llm_judgment = use_llm_judgment
+        self.llm_judgment_timeout_sec = llm_judgment_timeout_sec
     
     def should_use_rag(self, user_input: str) -> Tuple[bool, str]:
         """
@@ -64,6 +77,11 @@ class RAGTrigger:
         
         # Layer 2: LLM judgment (only when Layer 1 does not trigger)
         if self.use_llm_judgment and self.text_generator:
+            if (
+                self.llm_judgment_timeout_sec is not None
+                and self.llm_judgment_timeout_sec <= 0
+            ):
+                return False, "Layer 2 disabled (llm_judgment_timeout_sec <= 0)"
             return self._check_with_llm(user_input)
         
         # No trigger
@@ -122,9 +140,18 @@ class RAGTrigger:
 
 JSON:"""
             
-            # Use LLM to judge
-            response, _ = self.text_generator.chat(prompt, history=[])
-            
+            # Use LLM to judge (optional timeout caps worst-case delay before main reply)
+            tout = self.llm_judgment_timeout_sec
+            if tout is not None and tout > 0:
+                try:
+                    response, _ = self.text_generator.chat(
+                        prompt, history=[], timeout=tout
+                    )
+                except FuturesTimeout:
+                    return False, "LLM trigger timeout"
+            else:
+                response, _ = self.text_generator.chat(prompt, history=[])
+
             # Parse JSON response
             result = self._parse_llm_response(response)
             

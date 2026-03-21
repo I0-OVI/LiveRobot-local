@@ -323,3 +323,65 @@ class RAGMemory:
     def count(self) -> int:
         """Get total number of memories"""
         return self.vector_store.count()
+
+    def cleanup_old_memories(
+        self,
+        days: Optional[int] = None,
+        max_memories: Optional[int] = None,
+        min_importance: float = 0.0,
+    ) -> int:
+        """
+        Delete memories older than ``days``, below ``min_importance``, or trim to ``max_memories``
+        (keeps highest importance, then newest timestamp). Same behavior as legacy MemoryManager.
+        """
+        all_memories = self.vector_store.get_all_memories()
+        deleted_count = 0
+        now = datetime.now()
+
+        for memory in all_memories:
+            metadata = memory.get("metadata", {}) or {}
+            timestamp_str = metadata.get("timestamp")
+            imp = metadata.get("importance", 0.0)
+            try:
+                importance = float(imp) if imp is not None else 0.0
+            except (TypeError, ValueError):
+                importance = 0.0
+            memory_id = memory.get("id")
+
+            should_delete = False
+            if days is not None and timestamp_str:
+                try:
+                    ts = datetime.fromisoformat(str(timestamp_str))
+                    if ts.tzinfo is not None:
+                        ts = ts.replace(tzinfo=None)
+                    if (now - ts).days > days:
+                        should_delete = True
+                except Exception:
+                    pass
+            if importance < min_importance:
+                should_delete = True
+
+            if should_delete and memory_id:
+                if self.vector_store.delete_memory(memory_id):
+                    deleted_count += 1
+
+        if max_memories is not None:
+            remaining = self.vector_store.get_all_memories()
+            if len(remaining) > max_memories:
+                def sort_key(m):
+                    md = m.get("metadata", {}) or {}
+                    try:
+                        imp = float(md.get("importance", 0.0) or 0.0)
+                    except (TypeError, ValueError):
+                        imp = 0.0
+                    return (imp, str(md.get("timestamp", "")))
+
+                remaining.sort(key=sort_key, reverse=True)
+                for memory in remaining[max_memories:]:
+                    mid = memory.get("id")
+                    if mid and self.vector_store.delete_memory(mid):
+                        deleted_count += 1
+
+        if deleted_count > 0:
+            print(f"[RAG] Cleaned up {deleted_count} memories")
+        return deleted_count

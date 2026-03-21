@@ -1,6 +1,6 @@
 """
 Load system prompt and role from the setup file.
-Setup file: 'setup.txt' in the Reorganize root directory.
+Setup file: 'setup.txt' next to the `program` package (same folder as main.py).
 """
 import os
 import re
@@ -92,3 +92,98 @@ def parse_forbidden_words_list(raw: str) -> list:
     if not raw or not raw.strip():
         return []
     return [line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")]
+
+
+def _parse_bool_value(raw: str) -> Optional[bool]:
+    s = raw.strip().lower()
+    if s in ("true", "1", "yes", "on"):
+        return True
+    if s in ("false", "0", "no", "off", ""):
+        return False
+    return None
+
+
+def _normalize_rag_option_key(key: str) -> Optional[str]:
+    k = key.strip().lower().replace("-", "_")
+    aliases = {
+        "rag_use_llm_trigger": "use_llm_trigger",
+        "use_llm_trigger": "use_llm_trigger",
+        "rag_llm_trigger_timeout_sec": "llm_trigger_timeout_sec",
+        "llm_trigger_timeout_sec": "llm_trigger_timeout_sec",
+        "rag_always_retrieve": "always_retrieve",
+        "always_retrieve": "always_retrieve",
+        "rag_use_time_weight": "use_time_weight",
+        "use_time_weight": "use_time_weight",
+        "rag_time_decay_days": "time_decay_days",
+        "time_decay_days": "time_decay_days",
+        "rag_use_llm_long_term_eval": "use_llm_long_term_eval",
+        "use_llm_long_term_eval": "use_llm_long_term_eval",
+        "rag_save_llm_timeout_sec": "save_llm_timeout_sec",
+        "save_llm_timeout_sec": "save_llm_timeout_sec",
+        "rag_use_save_worker": "use_save_worker",
+        "use_save_worker": "use_save_worker",
+    }
+    return aliases.get(k)
+
+
+def get_rag_options(path: Optional[str] = None) -> Dict[str, object]:
+    """
+    Parse optional # ---------- RAG_OPTIONS ---------- section in setup.txt.
+    Lines: key=value (booleans: true/false/1/0/yes/no). Lines starting with # ignored.
+
+    Keys (aliases accepted with or without rag_ prefix):
+        use_llm_trigger, llm_trigger_timeout_sec (float; seconds), always_retrieve,
+        use_time_weight, time_decay_days,
+        use_llm_long_term_eval, save_llm_timeout_sec (float), use_save_worker
+
+    Omitted keys are not present in the returned dict (caller supplies defaults).
+    """
+    path = path or _SETUP_PATH
+    result: Dict[str, object] = {}
+    if not os.path.isfile(path):
+        return result
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except Exception:
+        return result
+
+    start_marker = "# ---------- RAG_OPTIONS ----------"
+    end_marker = "# ---------- END RAG_OPTIONS ----------"
+    si = text.find(start_marker)
+    ei = text.find(end_marker)
+    if si < 0 or ei < 0 or ei <= si:
+        return result
+
+    block = text[si + len(start_marker) : ei]
+    for line in block.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        nk = _normalize_rag_option_key(key)
+        if not nk:
+            continue
+        val = val.split("#", 1)[0].strip()
+        if nk == "time_decay_days":
+            try:
+                result[nk] = int(val)
+            except ValueError:
+                pass
+        elif nk == "llm_trigger_timeout_sec":
+            try:
+                result[nk] = float(val)
+            except ValueError:
+                pass
+        elif nk == "save_llm_timeout_sec":
+            try:
+                result[nk] = float(val)
+            except ValueError:
+                pass
+        else:
+            b = _parse_bool_value(val)
+            if b is not None:
+                result[nk] = b
+    return result

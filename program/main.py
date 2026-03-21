@@ -158,7 +158,15 @@ class AIAgent:
                  rag_merge_similarity_threshold: float = 0.95,
                  rag_auto_merge_every: int = 50,
                  rag_allow_no_memories: bool = True,
-                 memory_persist_path: Optional[str] = None):
+                 memory_persist_path: Optional[str] = None,
+                 rag_use_llm_trigger: Optional[bool] = None,
+                 rag_always_retrieve: Optional[bool] = None,
+                 rag_use_time_weight: Optional[bool] = None,
+                 rag_time_decay_days: Optional[int] = None,
+                 rag_llm_trigger_timeout_sec: Optional[float] = None,
+                 rag_use_llm_long_term_eval: Optional[bool] = None,
+                 rag_save_llm_timeout_sec: Optional[float] = None,
+                 rag_use_save_worker: Optional[bool] = None):
         """
         Initialize AI Agent
         
@@ -182,6 +190,14 @@ class AIAgent:
             rag_auto_merge_every: Auto-merge after every N successful RAG saves, 0 to disable, default 50
             rag_allow_no_memories: Allow no valid memories in RAG, default True
             memory_persist_path: Path to persist memory database, default "./memory_db"
+            rag_use_llm_trigger: If set, overrides setup RAG_OPTIONS / default for LLM-based RAG trigger
+            rag_always_retrieve: If set, overrides setup: always retrieve when vector store non-empty
+            rag_use_time_weight: If set, overrides setup: recency weighting in retrieval
+            rag_time_decay_days: If set, overrides setup time-decay window
+            rag_llm_trigger_timeout_sec: If set, overrides setup: max seconds for Layer2 RAG trigger LLM (None=no limit; <=0 disables Layer2 LLM)
+            rag_use_llm_long_term_eval: If set, overrides setup: one LLM JSON for store + importance on async RAG save
+            rag_save_llm_timeout_sec: If set, overrides setup: max seconds for save-side LLM (combined or importance-only)
+            rag_use_save_worker: If set, overrides setup: single-queue worker for RAG saves vs thread-per-save
         """
         self.use_streaming = use_streaming
         self.language = language
@@ -305,10 +321,58 @@ class AIAgent:
             
             try:
                 from ai.memory import MemoryCoordinator
-                from utils.setup_loader import get_user_name
-                
+                from utils.setup_loader import get_user_name, get_rag_options
+
                 user_name = get_user_name()
-                # Initialize full memory coordinator (Replay + RAG)
+                ro = get_rag_options()
+                eff_llm = (
+                    rag_use_llm_trigger
+                    if rag_use_llm_trigger is not None
+                    else bool(ro.get("use_llm_trigger", False))
+                )
+                eff_always = (
+                    rag_always_retrieve
+                    if rag_always_retrieve is not None
+                    else bool(ro.get("always_retrieve", False))
+                )
+                eff_tw = (
+                    rag_use_time_weight
+                    if rag_use_time_weight is not None
+                    else bool(ro.get("use_time_weight", False))
+                )
+                eff_td = (
+                    rag_time_decay_days
+                    if rag_time_decay_days is not None
+                    else int(ro.get("time_decay_days", 30))
+                )
+                eff_tt = (
+                    rag_llm_trigger_timeout_sec
+                    if rag_llm_trigger_timeout_sec is not None
+                    else ro.get("llm_trigger_timeout_sec")
+                )
+                if eff_tt is not None:
+                    eff_tt = float(eff_tt)
+
+                eff_lte = (
+                    rag_use_llm_long_term_eval
+                    if rag_use_llm_long_term_eval is not None
+                    else bool(ro.get("use_llm_long_term_eval", False))
+                )
+                eff_save_t = (
+                    rag_save_llm_timeout_sec
+                    if rag_save_llm_timeout_sec is not None
+                    else ro.get("save_llm_timeout_sec")
+                )
+                if eff_save_t is not None:
+                    eff_save_t = float(eff_save_t)
+                eff_sw = (
+                    rag_use_save_worker
+                    if rag_use_save_worker is not None
+                    else bool(ro.get("use_save_worker", True))
+                )
+
+                # Initialize full memory coordinator (Replay + RAG); text_generator wired for
+                # importance scoring, summaries, and optional LLM RAG trigger before start().
                 self.memory_coordinator = MemoryCoordinator(
                     replay_token_budget=replay_token_budget,
                     replay_persist_sessions=replay_persist_sessions,
@@ -323,11 +387,18 @@ class AIAgent:
                     rag_merge_similarity_threshold=rag_merge_similarity_threshold,
                     rag_auto_merge_every=rag_auto_merge_every,
                     rag_allow_no_memories=rag_allow_no_memories,
-                    rag_use_llm_trigger=False,
+                    rag_use_llm_trigger=eff_llm,
+                    rag_llm_trigger_timeout_sec=eff_tt,
+                    rag_always_retrieve=eff_always,
+                    rag_use_time_weight=eff_tw,
+                    rag_time_decay_days=eff_td,
                     rag_user_name=user_name,
-                    text_generator=None
+                    text_generator=self.text_generator,
+                    rag_use_llm_long_term_eval=eff_lte,
+                    rag_save_llm_timeout_sec=eff_save_t,
+                    rag_use_save_worker=eff_sw,
                 )
-                
+
                 print(f"[Init] ✓ Memory Coordinator initialized (Replay + RAG)")
                 print(f"[Init] User name from setup.txt: {user_name}")
                 print(f"[Init] Replay path: {os.path.abspath(replay_persist_path)}, RAG path: {os.path.abspath(memory_persist_path)}")
@@ -335,6 +406,14 @@ class AIAgent:
                 print(f"[Init] RAG top_k: {rag_top_k}, similarity_threshold: {rag_similarity_threshold}")
                 print(f"[Init] RAG summary interval: {rag_summary_interval}")
                 print(f"[Init] RAG auto-merge every: {rag_auto_merge_every} saves (0=disabled)")
+                print(
+                    f"[Init] RAG trigger: use_llm={eff_llm}, llm_timeout_sec={eff_tt}, "
+                    f"always_retrieve={eff_always}, time_weight={eff_tw} (decay_days={eff_td})"
+                )
+                print(
+                    f"[Init] RAG save: long_term_llm_eval={eff_lte}, save_llm_timeout_sec={eff_save_t}, "
+                    f"use_save_worker={eff_sw}"
+                )
             except (ImportError, Exception) as e:
                 print(f"[Init] ⚠ Full memory (RAG) not available: {e}")
                 print("[Init] Replay-only mode: saving sessions to replay_db (install sentence-transformers for RAG)")

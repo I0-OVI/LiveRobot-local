@@ -1,6 +1,10 @@
 # RAG Management and Testing Tools
 
-Run the following commands inside the **Reorganize** directory (shared `memory_db` with the main app).
+Run from the **`program`** directory (same `utils/memory_db` as `main.py`). Example:
+
+```bash
+cd program
+```
 
 ## 1. Manual RAG Management (Add / Delete / Merge)
 

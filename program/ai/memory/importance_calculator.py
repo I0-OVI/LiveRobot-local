@@ -56,7 +56,8 @@ JSON:"""
         self,
         user_input: str,
         assistant_response: str,
-        fallback_importance: float = 1.0
+        fallback_importance: float = 1.0,
+        timeout_sec: Optional[float] = None,
     ) -> Tuple[float, Dict[str, float]]:
         """
         Calculate importance score using LLM
@@ -65,6 +66,8 @@ JSON:"""
             user_input: User's input text
             assistant_response: Assistant's response text
             fallback_importance: Fallback importance if calculation fails
+            timeout_sec: If set and > 0, passed to text_generator.chat (else no limit).
+                On timeout, returns fallback_importance.
         
         Returns:
             Tuple of (overall_importance_score, detailed_scores_dict)
@@ -86,8 +89,17 @@ JSON:"""
             # Generate evaluation using LLM
             # Use chat method with empty history for importance evaluation
             if hasattr(self.text_generator, 'chat'):
-                # Use chat method with empty history
-                response, _ = self.text_generator.chat(prompt, history=[])
+                from concurrent.futures import TimeoutError as FuturesTimeout
+                try:
+                    if timeout_sec is not None and timeout_sec > 0:
+                        response, _ = self.text_generator.chat(
+                            prompt, history=[], timeout=timeout_sec
+                        )
+                    else:
+                        response, _ = self.text_generator.chat(prompt, history=[])
+                except FuturesTimeout:
+                    print("[ImportanceCalculator] LLM timeout, using fallback importance")
+                    return fallback_importance, {}
             elif hasattr(self.text_generator, 'generate_simple'):
                 response = self.text_generator.generate_simple(prompt)
             elif hasattr(self.text_generator, 'generate_text'):

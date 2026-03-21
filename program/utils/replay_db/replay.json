@@ -160,9 +160,16 @@
       "assistant_response": "好的，Carambola。给你一个大大的笑容！",
       "timestamp": "2026-03-15T19:14:40.468138",
       "token_count": 32
+    },
+    {
+      "turn_id": 24,
+      "user_input": "唐笑一下",
+      "assistant_response": "好的，Carambola。给你一个大大的笑容！",
+      "timestamp": "2026-03-15T22:36:36.391142",
+      "token_count": 32
     }
   ],
-  "total_tokens": 993,
+  "total_tokens": 1025,
   "max_turns": 50,
-  "updated_at": "2026-03-15T19:14:40.468138"
+  "updated_at": "2026-03-15T22:36:36.392131"
 }
