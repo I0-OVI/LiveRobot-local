@@ -48,7 +48,7 @@ This project makes use of the following open-source projects and resources:
 - Live2D Cubism SDK (Official SDK)  
   https://www.live2d.com  
 
-- Qwen2 7B (4-bit quantized model, Hugging Face)  
+- Qwen2.5-7B-Instruct (default: [`Qwen/Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct); Hub weights are FP16/BF16, loaded in **4-bit** at runtime via bitsandbytes when CUDA is available)  
   https://huggingface.co/Qwen  
 
 Thanks to the authors and communities for their excellent work.

@@ -33,10 +33,15 @@ pip install live2d-py
 
 #### Qwen Model
 
-The Qwen model will be automatically downloaded from Hugging Face when you first run the application. You can also manually download it:
+The default model is downloaded from Hugging Face on first run (unless already cached). Hub weights are **not** pre-quantized; with a GPU the app loads them in **4-bit** using bitsandbytes.
 
-- **Qwen 7B Chat (4-bit quantized)**: https://huggingface.co/Qwen
-- The model will be cached in `program/utils/models/` or your Hugging Face cache directory
+- **Default repo**: [`Qwen/Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct) (Qwen2.5 **Instruct**; chat uses tokenizer `chat_template` + `generate`, not legacy `model.chat()`).
+- **Default cache directory** (when using built-in defaults): `program/utils/models/qwen2.5-7b-instruct` (Hugging Face layout: `models--Qwen--Qwen2.5-7B-Instruct/snapshots/...`).
+- **Organization page**: https://huggingface.co/Qwen
+
+**Windows Task Manager vs real VRAM:** You may see **GPU0** (Intel UHD) and **GPU1** (NVIDIA). The large number on the Intel GPU is mostly **system RAM** used as *shared* graphics memory — not fast discrete VRAM. On the NVIDIA page, look at **Dedicated GPU memory** (e.g. **8 GB** on many RTX 4070 Laptop SKUs): that is what **CUDA / PyTorch** uses for model weights. **Shared GPU memory** there is also **system RAM** the driver can borrow when dedicated is full; it is **much slower** and not the same as having more VRAM.
+
+**Other checkpoints:** Plan around **dedicated VRAM**. **7B + 4-bit** (default) usually fits **~8 GB** dedicated with reasonable context. **14B-class 4-bit** may need more headroom; confirm with `nvidia-smi`. Lighter options include **Qwen2.5-3B-Instruct**. Override via `AIAgent(..., model_name=...)` in `program/main.py` (must be an Instruct model with a `chat_template` in the tokenizer).
 
 #### Live2D SDK
 

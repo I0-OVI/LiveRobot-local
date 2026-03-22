@@ -22,8 +22,8 @@ from queue import Queue
 # Force HuggingFace offline when Qwen cache exists (before any hub/transformers use)
 # Avoids fetching custom_generate/generate.py and other repo files after weights load
 _script_dir = os.path.dirname(os.path.abspath(__file__))
-_qwen_cache = os.path.join(_script_dir, "utils", "models", "qwen-7b-chat")
-_qwen_model_dir = os.path.join(_qwen_cache, "models--Qwen--Qwen-7B-Chat")
+_qwen_cache = os.path.join(_script_dir, "utils", "models", "qwen2.5-7b-instruct")
+_qwen_model_dir = os.path.join(_qwen_cache, "models--Qwen--Qwen2.5-7B-Instruct")
 if os.path.isdir(_qwen_model_dir):
     _snap = os.path.join(_qwen_model_dir, "snapshots")
     if os.path.isdir(_snap) and os.listdir(_snap):
@@ -139,7 +139,7 @@ class AIAgent:
     
     def __init__(self, 
                  use_streaming: bool = True,
-                 model_name: str = "Qwen/Qwen-7B-Chat",
+                 model_name: str = "Qwen/Qwen2.5-7B-Instruct",
                  model_cache_dir: Optional[str] = None,
                  language: str = "zh-CN",
                  use_gui: bool = True,
@@ -242,7 +242,7 @@ class AIAgent:
         # Qwen text generator
         if model_cache_dir is None:
             current_dir = get_current_dir()
-            model_cache_dir = os.path.join(current_dir, "models", "qwen-7b-chat")
+            model_cache_dir = os.path.join(current_dir, "models", "qwen2.5-7b-instruct")
             # Ensure directory exists
             os.makedirs(model_cache_dir, exist_ok=True)
         
