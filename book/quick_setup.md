@@ -43,6 +43,8 @@ The default model is downloaded from Hugging Face on first run (unless already c
 
 **Other checkpoints:** Plan around **dedicated VRAM**. **7B + 4-bit** (default) usually fits **~8 GB** dedicated with reasonable context. **14B-class 4-bit** may need more headroom; confirm with `nvidia-smi`. Lighter options include **Qwen2.5-3B-Instruct**. Override via `AIAgent(..., model_name=...)` in `program/main.py` (must be an Instruct model with a `chat_template` in the tokenizer).
 
+**Qwen3 (e.g. [`Qwen/Qwen3-8B`](https://huggingface.co/Qwen/Qwen3-8B)):** Same code path as Qwen2.5; we call `apply_chat_template(..., enable_thinking=False)` when supported so output matches **non-thinking** Qwen3 behavior (aligned with Qwen2.5-style chat). Use **`transformers>=4.51.0`** for Qwen3 (older versions raise `KeyError: 'qwen3'`). **8B + 4-bit** is a bit heavier than 7B — verify on your GPU. MoE variants need enough VRAM for active experts at your quantization level.
+
 #### Live2D SDK
 
 Download the official Live2D Cubism SDK:

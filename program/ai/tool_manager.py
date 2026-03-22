@@ -15,7 +15,21 @@ except ImportError:
     REQUESTS_AVAILABLE = False
     requests = None
 
+try:
+    from utils.setup_loader import get_default_weather_city
+except ImportError:  # e.g. tests with minimal sys.path
+    def get_default_weather_city():  # type: ignore
+        return None
+
 logger = logging.getLogger(__name__)
+
+# Chinese phrases that indicate a real weather question (allow default city when no place named)
+_EXPLICIT_WEATHER_QUERY_ZH = re.compile(
+    r"天气(?:怎么样|如何|好不|好嘛|好吗|[\?？])|"
+    r"什么天气|啥天气|天气预报|"
+    r"(?:看看|看下|查查|查一下|帮我|劳驾).{0,20}天气|"
+    r"(?:气温|温度|多少度)(?:怎样|如何|多少|[\?？])?"
+)
 
 # Reject (.+?)…weather capture when it is clearly not a place name (English)
 _WEATHER_KEYWORD_CITY_STOPWORDS = frozenset(
@@ -46,15 +60,14 @@ _WEATHER_KEYWORD_CITY_STOPWORDS = frozenset(
 class ToolManager:
     """Tool manager, handles tool call requests"""
 
+    # Only bracket/tool-style markers here. Natural-language phrases belong in KEYWORD_TRIGGERS
+    # so remove_tool_markers() does not strip normal model output (e.g. "需要", "现在几点了").
     TOOL_CALL_PATTERNS = {
         "time": [
             r"\[TOOL:GET_TIME\]",
             r"\[Tool:Get\s+Time\]",
             r"\[tool:get_time\]",
             r"\[工具:获取时间\]",
-            r"请求获取时间",
-            r"需要知道现在的时间",
-            r"现在几点了",
         ],
         "weather": [
             r"\[Tool:Get\s+Weather\][^\]]*城市[:：]?\s*([^\]]+)",
@@ -69,8 +82,6 @@ class ToolManager:
             r"\[tool:get_weather\]",
             r"\[工具:获取天气\]\s*城市[:：]?\s*([^\]]+)",
             r"\[工具:获取天气\]",
-            r"请求获取天气.*?城市[:：]?\s*([^\]]+)",
-            r"查询天气.*?城市[:：]?\s*([^\]]+)",
         ],
         "exchange_rate": [
             r"\[TOOL:GET_EXCHANGE_RATE\]\s*货币[:：]?\s*([^\]]+)",
@@ -80,17 +91,22 @@ class ToolManager:
             r"\[Tool:Get\s+Exchange\s+Rate\]",
             r"\[工具:获取汇率\]\s*货币[:：]?\s*([^\]]+)",
             r"\[工具:获取汇率\]",
-            r"请求获取汇率.*?货币[:：]?\s*([^\]]+)",
-            r"查询汇率.*?货币[:：]?\s*([^\]]+)",
         ],
     }
 
     KEYWORD_TRIGGERS = {
         "time": [
             r"现在.*?时间|现在.*?几点|当前时间|现在几点了|现在.*?什么时候|时间.*?多少",
+            r"请求获取时间|需要知道现在的时间",
             r"what.*?time|current.*?time|what.*?time.*?is.*?it",
         ],
         "weather": [
+            r"天气(?:怎么样|如何|好不|好嘛|好吗|[\?？])",
+            r"什么天气|啥天气|天气预报",
+            r"(?:看看|看下|查查|查一下|帮我|劳驾).{0,20}天气",
+            r"(?:气温|温度|多少度)(?:怎样|如何|多少|[\?？])?",
+            r"请求获取天气.*?城市[:：]?\s*([^\s\n]+)",
+            r"查询天气.*?城市[:：]?\s*([^\s\n]+)",
             r"天气|气温|温度|下雨|晴天|阴天|多云|下雪|刮风",
             r"weather|temperature|rain|sunny|cloudy|snow",
             r"(.+?)(?:的|地)?(?:天气|气温|温度)",
@@ -99,6 +115,8 @@ class ToolManager:
         "exchange_rate": [
             r"汇率|兑换|换汇|货币.*?汇率|(.+?)(?:对|兑|换)(.+?)(?:的|地)?(?:汇率|兑换率)",
             r"exchange.*?rate|currency.*?rate|(.+?)(?:to|against|vs)(.+?)(?:rate|exchange)",
+            r"请求获取汇率.*?货币[:：]?\s*([^\s\n]+)",
+            r"查询汇率.*?货币[:：]?\s*([^\s\n]+)",
         ],
     }
 
@@ -112,16 +130,32 @@ class ToolManager:
         r"(人民币|美元|欧元|英镑|日元|港币|澳元|加元|瑞士法郎|新西兰元)",
     ]
 
-    def __init__(self, enable_keyword_trigger: bool = True):
+    def __init__(
+        self,
+        enable_keyword_trigger: bool = True,
+        default_weather_city: Optional[str] = None,
+    ):
         """
         Initialize tool manager
 
         Args:
             enable_keyword_trigger: Whether to enable keyword auto-trigger (default True)
+            default_weather_city: When set, overrides env and setup. If None, reads WEATHER_DEFAULT_CITY;
+                if that env var is unset, uses city parsed from setup.txt ROLE_ZH / ROLE_EN (e.g. 「住在上海」);
+                empty env string disables default city. If setup has no city, falls back to "上海".
         """
         self.weather_api_key = os.getenv("WEATHER_API_KEY", "")
         self.exchange_rate_api_key = os.getenv("EXCHANGE_RATE_API_KEY", "")
         self.enable_keyword_trigger = enable_keyword_trigger
+
+        if default_weather_city is not None:
+            self._default_weather_city = default_weather_city.strip() or None
+        else:
+            raw = os.environ.get("WEATHER_DEFAULT_CITY")
+            if raw is not None:
+                self._default_weather_city = raw.strip() or None
+            else:
+                self._default_weather_city = get_default_weather_city() or "上海"
 
         self._tool_patterns: Dict[str, List[Pattern[str]]] = {
             k: [re.compile(p, re.IGNORECASE) for p in v]
@@ -180,6 +214,17 @@ class ToolManager:
         if raw.isascii() and raw.lower() in _WEATHER_KEYWORD_CITY_STOPWORDS:
             return None
         return self._extract_city_from_text(raw)
+
+    def _zh_text(self, text: str) -> bool:
+        return bool(re.search(r"[\u4e00-\u9fff]", text))
+
+    def _allow_default_weather_city(self, text: str) -> bool:
+        """Default city only for clear Chinese weather questions (avoids English false positives)."""
+        if not self._default_weather_city:
+            return False
+        if not self._zh_text(text):
+            return False
+        return bool(_EXPLICIT_WEATHER_QUERY_ZH.search(text))
 
     def _extract_currency_from_text(self, text: str) -> Optional[str]:
         """Extract currency pair from text"""
@@ -262,6 +307,9 @@ class ToolManager:
                 city = self._city_from_weather_keyword_match(text, match)
                 if city:
                     return ("weather", {"city": city})
+                if self._allow_default_weather_city(text):
+                    return ("weather", {"city": self._default_weather_city})
+                break
 
             for pattern in self._keyword_patterns["exchange_rate"]:
                 match = pattern.search(text)

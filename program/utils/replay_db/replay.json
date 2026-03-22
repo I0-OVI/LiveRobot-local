@@ -167,9 +167,37 @@
       "assistant_response": "好的，Carambola。给你一个大大的笑容！",
       "timestamp": "2026-03-15T22:36:36.391142",
       "token_count": 32
+    },
+    {
+      "turn_id": 25,
+      "user_input": "下午好",
+      "assistant_response": "下午好，Carambola。今天过得如何？",
+      "timestamp": "2026-03-22T13:54:12.450552",
+      "token_count": 24
+    },
+    {
+      "turn_id": 26,
+      "user_input": "还可以",
+      "assistant_response": "那就不错啦。有没有什么事情让你觉得特别开心或者有趣的事情想分享？",
+      "timestamp": "2026-03-22T13:54:22.826230",
+      "token_count": 48
+    },
+    {
+      "turn_id": 27,
+      "user_input": "没啥 帮我看看今天天气怎么样",
+      "assistant_response": "需要",
+      "timestamp": "2026-03-22T13:54:42.238736",
+      "token_count": 31
+    },
+    {
+      "turn_id": 28,
+      "user_input": "？",
+      "assistant_response": "需要",
+      "timestamp": "2026-03-22T13:55:05.330285",
+      "token_count": 12
     }
   ],
-  "total_tokens": 1025,
+  "total_tokens": 1140,
   "max_turns": 50,
-  "updated_at": "2026-03-15T22:36:36.392131"
+  "updated_at": "2026-03-22T13:55:23.153276"
 }

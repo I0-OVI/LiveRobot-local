@@ -278,6 +278,21 @@ class QwenTextGenerator:
         messages.append({"role": "user", "content": user_input})
         return messages
 
+    def _apply_chat_template_prompt(self, messages: List[dict]) -> str:
+        """
+        Render chat prompt. Qwen3 templates accept enable_thinking=False for plain assistant text
+        (thinking mode off, per Qwen3 docs). Older chat templates omit that argument — fall back on TypeError.
+        """
+        if self.tokenizer is None:
+            raise RuntimeError("Tokenizer not loaded")
+        base_kw = {"tokenize": False, "add_generation_prompt": True}
+        try:
+            return self.tokenizer.apply_chat_template(
+                messages, **base_kw, enable_thinking=False
+            )
+        except TypeError:
+            return self.tokenizer.apply_chat_template(messages, **base_kw)
+
     def _prepare_inputs_chat(
         self,
         user_input: str,
@@ -293,11 +308,7 @@ class QwenTextGenerator:
 
         system_prompt = self._get_system_prompt(user_input, enhanced_prompt=enhanced_prompt)
         messages = self._messages_from_turns(user_input, history, system_prompt)
-        prompt_text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        prompt_text = self._apply_chat_template_prompt(messages)
         device = self._model_input_device()
         enc = self.tokenizer(prompt_text, return_tensors="pt")
         return {k: v.to(device) for k, v in enc.items()}

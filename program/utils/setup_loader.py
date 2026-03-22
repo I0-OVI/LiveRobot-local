@@ -69,6 +69,41 @@ def load_setup() -> Dict[str, str]:
     return _parse_setup_file(_SETUP_PATH)
 
 
+def get_default_weather_city(setup: Optional[Dict[str, str]] = None) -> Optional[str]:
+    """
+    Parse the user's home city from ROLE_ZH / ROLE_EN for the weather tool default.
+
+    Recognizes common phrasing, e.g. 「目前住在上海」「住在上海」or English 「lives in Shanghai」.
+    Returns None if not found or placeholder-only (e.g. unreplaced ``{...}``).
+    """
+    if setup is None:
+        setup = load_setup()
+    role_zh = setup.get("ROLE_ZH") or ""
+    role_en = setup.get("ROLE_EN") or ""
+
+    for pat in (
+        r"(?:目前)?\s*住在\s*([^\s\n。，,；、#]+)",
+        r"居住在\s*([^\s\n。，,；、#]+)",
+    ):
+        m = re.search(pat, role_zh)
+        if m:
+            city = m.group(1).strip()
+            if city and "{" not in city:
+                return city
+
+    m = re.search(
+        r"\b(?:live|lives|living|residing)\s+in\s+([^\n,;.#]+)",
+        role_en,
+        re.IGNORECASE,
+    )
+    if m:
+        city = m.group(1).strip().rstrip(".")
+        if city and "{" not in city:
+            return city
+
+    return None
+
+
 def get_user_name() -> str:
     """
     Get user name from setup file. Used for ROLE placeholder and RAG canonicalization.
