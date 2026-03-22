@@ -374,17 +374,13 @@ class ToolManager:
             if response.status_code == 200:
                 data = response.json()
                 current = data.get("current_condition", [{}])[0]
-                location = (
-                    data.get("nearest_area", [{}])[0]
-                    .get("areaName", [{}])[0]
-                    .get("value", city)
-                )
                 temp_c = current.get("temp_C", "N/A")
                 desc = current.get("lang_zh", [{}])[0].get(
                     "value",
                     current.get("weatherDesc", [{}])[0].get("value", "未知"),
                 )
-                return f"{location}天气{desc}，气温{temp_c}°C"
+                # No district/city name — model will phrase naturally for the user
+                return f"{desc}，气温{temp_c}°C"
             return f"抱歉，查询{city}的天气信息时出现错误。"
         except Exception as e:
             logger.warning("Weather request failed for %r: %s: %s", city, type(e).__name__, e)
@@ -453,7 +449,7 @@ class ToolManager:
             )
             return f"抱歉，无法查询{currency}的汇率信息。"
 
-    def process_response(self, response: str) -> Tuple[str, bool]:
+    def process_response(self, response: str) -> Tuple[str, bool, Optional[Tuple[str, str]]]:
         """
         Process AI-generated response, detect and handle tool calls
         Note: Only detects tool call markers, not keywords (to avoid false triggers from keywords in AI responses)
@@ -462,13 +458,14 @@ class ToolManager:
             response: AI-generated response text
 
         Returns:
-            (processed response, whether tool call was detected)
+            (processed response, whether tool call was detected, optional (tool_name, raw_tool_output))
         """
         tool_call = self.detect_tool_marker(response)
 
         if tool_call:
             tool_name, params = tool_call
             tool_result = self.execute_tool(tool_name, params)
+            trace: Optional[Tuple[str, str]] = (tool_name, tool_result)
 
             processed_response = response
             for pattern in self._tool_patterns.get(tool_name, []):
@@ -477,10 +474,10 @@ class ToolManager:
             processed_response = self._ws_collapse.sub(" ", processed_response).strip()
 
             if not processed_response or len(processed_response) < 3:
-                return tool_result, True
+                return tool_result, True, trace
 
             if processed_response[-1] not in "。！？.!?":
                 processed_response += "。"
-            return f"{processed_response} {tool_result}", True
+            return f"{processed_response} {tool_result}", True, trace
 
-        return response, False
+        return response, False, None

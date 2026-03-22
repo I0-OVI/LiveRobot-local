@@ -81,6 +81,26 @@ class _StreamChatJob:
             self.out_q.put(("error", e))
 
 
+class _WeatherNaturalizeJob:
+    """Second-pass weather wording on the inference worker (avoids queue deadlock)."""
+
+    __slots__ = ("gen", "user_input", "history", "facts", "future")
+
+    def __init__(self, gen, user_input, history, facts, future):
+        self.gen = gen
+        self.user_input = user_input
+        self.history = history
+        self.facts = facts
+        self.future = future
+
+    def execute(self) -> None:
+        try:
+            text = self.gen._weather_naturalize_direct(self.user_input, self.history, self.facts)
+            self.future.set_result(text)
+        except BaseException as e:
+            self.future.set_exception(e)
+
+
 class QwenTextGenerator:
     """Qwen Instruct (default Qwen2.5-7B) 4-bit text generator. Prompts and forbidden words from setup.txt."""
 
@@ -389,6 +409,92 @@ class QwenTextGenerator:
 
             self.model._validate_model_class = _validate_model_class.__get__(self.model, type(self.model))
 
+    @staticmethod
+    def naturalizable_weather_facts(facts: str) -> bool:
+        """True if tool output is successful observation text (not an error prompt)."""
+        s = (facts or "").strip()
+        if not s:
+            return False
+        bad_starts = ("抱歉", "需要查询天气", "无法查询", "缺少必要的库")
+        return not any(s.startswith(p) for p in bad_starts)
+
+    def _weather_naturalize_user_message(self, user_input: str, facts: str) -> str:
+        if re.search(r"[\u4e00-\u9fff]", user_input or ""):
+            return (
+                "【只输出你要对用户说的口语，一两句；不要工具标记、不要区县/片区地名、不要播音腔】\n"
+                f"用户原话：{user_input}\n观测：{facts}\n"
+                "可以说说适不适合出门。"
+            )
+        return (
+            "[Output only 1–2 spoken sentences for the user. No tool markers, no district names.]\n"
+            f"User said: {user_input}\nObservation: {facts}"
+        )
+
+    def _weather_naturalize_direct(
+        self,
+        user_input: str,
+        history: Optional[List[Tuple[str, str]]],
+        facts: str,
+    ) -> str:
+        """Runs on the inference worker thread only (second generate pass)."""
+        inner = self._weather_naturalize_user_message(user_input, facts)
+        inputs = self._prepare_inputs_chat(inner, history, None)
+        logits_processor = self._create_logits_processor()
+        gen_kwargs = {
+            **inputs,
+            "max_new_tokens": 128,
+            "temperature": 0.62,
+            "repetition_penalty": 1.12,
+            "do_sample": True,
+            "pad_token_id": self._pad_token_id(),
+        }
+        if logits_processor is not None:
+            gen_kwargs["logits_processor"] = logits_processor
+        with torch.inference_mode():
+            output_ids = self.model.generate(**gen_kwargs)
+        inp_len = inputs["input_ids"].shape[1]
+        new_tokens = output_ids[0, inp_len:]
+        text = self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        return self._filter_forbidden_words(text).strip()
+
+    def _apply_weather_naturalization(
+        self,
+        user_input: str,
+        history: Optional[List[Tuple[str, str]]],
+        merged: str,
+        trace: Optional[Tuple[str, str]],
+    ) -> str:
+        if not trace or trace[0] != "weather":
+            return merged
+        facts = trace[1]
+        if not self.naturalizable_weather_facts(facts):
+            return merged
+        try:
+            return self._weather_naturalize_direct(user_input, history, facts)
+        except Exception:
+            return merged
+
+    def naturalize_weather_reply(
+        self,
+        user_input: str,
+        weather_facts: str,
+        history: Optional[List[Tuple[str, str]]] = None,
+        timeout: float = 90.0,
+    ) -> str:
+        """
+        Turn raw weather facts into a short spoken reply (for keyword tool path on UI thread).
+        """
+        self._ensure_inference_worker()
+        if self.model is None or self.tokenizer is None:
+            raise RuntimeError("Model not loaded, please call load_model() first")
+        if not self.naturalizable_weather_facts(weather_facts):
+            return weather_facts.strip()
+        fut: Future = Future()
+        self._task_queue.put(
+            _WeatherNaturalizeJob(self, user_input, list(history or []), weather_facts, fut)
+        )
+        return fut.result(timeout=timeout).strip()
+
     def _run_chat_direct(
         self,
         user_input: str,
@@ -427,7 +533,8 @@ class QwenTextGenerator:
         response = self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
         response = self._filter_forbidden_words(response)
-        response, _ = self.tool_manager.process_response(response)
+        response, _, trace = self.tool_manager.process_response(response)
+        response = self._apply_weather_naturalization(user_input, history, response, trace)
         updated_history = list(history) + [(user_input, response)]
         return response, updated_history
 
@@ -534,8 +641,12 @@ class QwenTextGenerator:
                 yield filtered_response
 
             if full_response:
-                processed, _ = self.tool_manager.process_response(full_response.strip())
-                if processed != full_response.strip():
+                base = full_response.strip()
+                processed, _, trace = self.tool_manager.process_response(base)
+                processed = self._apply_weather_naturalization(
+                    user_input, history, processed, trace
+                )
+                if processed != base:
                     yield processed
         except Exception:
             response, _ = self._run_chat_direct(

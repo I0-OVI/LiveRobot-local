@@ -195,9 +195,16 @@
       "assistant_response": "需要",
       "timestamp": "2026-03-22T13:55:05.330285",
       "token_count": 12
+    },
+    {
+      "turn_id": 29,
+      "user_input": "今天天气怎么样",
+      "assistant_response": "Pootung天气局部多云，气温20°C",
+      "timestamp": "2026-03-22T15:27:45.640634",
+      "token_count": 35
     }
   ],
-  "total_tokens": 1140,
+  "total_tokens": 1175,
   "max_turns": 50,
-  "updated_at": "2026-03-22T13:55:23.153276"
+  "updated_at": "2026-03-22T15:28:10.376240"
 }

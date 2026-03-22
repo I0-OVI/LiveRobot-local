@@ -712,6 +712,18 @@ class AIAgent:
             # Execute tool
             tool_result = self.text_generator.tool_manager.execute_tool(tool_name, params)
             print(f"[Keyword Detection] Tool execution result: '{tool_result}'")
+
+            if tool_name == "weather" and QwenTextGenerator.naturalizable_weather_facts(tool_result):
+                try:
+                    if self.text_generator.model is None:
+                        self.text_generator.load_model()
+                    tool_result = self.text_generator.naturalize_weather_reply(
+                        user_input, tool_result, self.conversation_history
+                    )
+                    _snip = tool_result if len(tool_result) <= 100 else tool_result[:100] + "..."
+                    print(f"[Keyword Detection] Weather naturalized: '{_snip}'")
+                except Exception as e:
+                    print(f"[Keyword Detection] Weather naturalize failed, using raw facts: {e}")
             
             # Switch to talk state and output result
             self._safe_set_state(AgentState.TALKING, "talk")
