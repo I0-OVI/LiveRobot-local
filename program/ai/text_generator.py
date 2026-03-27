@@ -2,6 +2,7 @@
 Qwen Instruct models, 4-bit loading via bitsandbytes when CUDA is available.
 Uses HuggingFace Transformers chat templates + generate; no legacy Qwen1 model.chat() / qwen_generation_utils.
 """
+import json
 import os
 import queue
 import re
@@ -16,11 +17,49 @@ from transformers import (
     TextIteratorStreamer,
     LogitsProcessor,
     LogitsProcessorList,
+    PreTrainedTokenizerFast,
 )
 from threading import Thread
 from .tool_manager import ToolManager
 from utils.setup_loader import load_setup, get_user_name, parse_forbidden_words_list
 from utils.time_context import local_time_context_block
+
+
+def _patch_bitsandbytes_params4bit_for_accelerate() -> None:
+    """
+    accelerate's set_module_tensor_to_device rebuilds 4-bit weights with
+    Params4bit(new_value, requires_grad=..., **old_param.__dict__). PyTorch 2.x
+    Parameter dict can include _is_hf_initialized, which bitsandbytes Params4bit.__new__
+    does not accept. Forward only the kwargs the constructor supports.
+    """
+    try:
+        import bitsandbytes.nn.modules as bnb_modules
+    except ImportError:
+        return
+    P = getattr(bnb_modules, "Params4bit", None)
+    if P is None or getattr(P, "_livebot_new_patched", False):
+        return
+    _orig_new = P.__new__
+
+    def _new(cls, data=None, requires_grad=False, **kwargs):
+        return _orig_new(
+            cls,
+            data,
+            requires_grad,
+            kwargs.get("quant_state"),
+            kwargs.get("blocksize"),
+            kwargs.get("compress_statistics", True),
+            kwargs.get("quant_type", "fp4"),
+            kwargs.get("quant_storage", torch.uint8),
+            kwargs.get("module"),
+            kwargs.get("bnb_quantized", False),
+        )
+
+    P.__new__ = _new  # type: ignore[method-assign]
+    P._livebot_new_patched = True
+
+
+_patch_bitsandbytes_params4bit_for_accelerate()
 
 
 class ForbiddenWordsLogitsProcessor(LogitsProcessor):
@@ -147,11 +186,13 @@ class QwenTextGenerator:
         self.FORBIDDEN_WORDS_EN = parse_forbidden_words_list(setup["FORBIDDEN_WORDS_EN"]) if setup.get("FORBIDDEN_WORDS_EN") else []
 
         if self.use_quantization:
+            # Allow GPU+CPU (or disk) split when VRAM cannot hold the full 4-bit model; required by transformers bnb 4-bit.
             self.quantization_config = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_compute_dtype=torch.float16,
                 bnb_4bit_use_double_quant=True,
                 bnb_4bit_quant_type="nf4",
+                llm_int8_enable_fp32_cpu_offload=True,
             )
         else:
             self.quantization_config = None
@@ -285,6 +326,31 @@ class QwenTextGenerator:
         path = os.path.join(self.cache_dir, f"models--{model_slug}")
         return path if os.path.exists(path) else None
 
+    def _get_snapshot_dir(self) -> Optional[str]:
+        """First revision under snapshots/ (HF hub cache layout)."""
+        cache_path = self._get_model_cache_path()
+        if not cache_path:
+            return None
+        snapshots_path = os.path.join(cache_path, "snapshots")
+        if not os.path.isdir(snapshots_path):
+            return None
+        snapshots = sorted(os.listdir(snapshots_path))
+        if not snapshots:
+            return None
+        return os.path.join(snapshots_path, snapshots[0])
+
+    @staticmethod
+    def _snapshot_has_model_weights(snapshot_dir: str) -> bool:
+        if not os.path.isdir(snapshot_dir):
+            return False
+        for name in os.listdir(snapshot_dir):
+            lower = name.lower()
+            if lower.endswith(".safetensors") or lower == "pytorch_model.bin":
+                return True
+            if lower == "model.safetensors.index.json":
+                return True
+        return False
+
     def _model_input_device(self) -> torch.device:
         if self.model is None:
             return torch.device(self.device)
@@ -351,30 +417,155 @@ class QwenTextGenerator:
         return {k: v.to(device) for k, v in enc.items()}
 
     def is_model_downloaded(self) -> bool:
-        """Check if model is fully downloaded (has snapshots and key files). Only then use local_files_only."""
+        """
+        True only when the hub snapshot looks complete: config, weights, and tokenizer files.
+        Avoids HF_HUB_OFFLINE + local_files_only when only tokenizer_config.json (or metadata) exists.
+        """
         try:
-            cache_path = self._get_model_cache_path()
-            if cache_path:
-                snapshots_path = os.path.join(cache_path, "snapshots")
-                if os.path.isdir(snapshots_path):
-                    snapshots = os.listdir(snapshots_path)
-                    if snapshots:
-                        snapshot_dir = os.path.join(snapshots_path, snapshots[0])
-                        for key in ("config.json", "tokenizer_config.json"):
-                            if os.path.isfile(os.path.join(snapshot_dir, key)):
-                                return True
-            try:
-                AutoTokenizer.from_pretrained(
-                    self.model_name,
-                    cache_dir=self.cache_dir,
-                    trust_remote_code=self.trust_remote_code,
-                    local_files_only=True,
-                )
-                return True
-            except (OSError, ValueError):
+            snap = self._get_snapshot_dir()
+            if not snap:
                 return False
+            if not os.path.isfile(os.path.join(snap, "config.json")):
+                return False
+            if not self._snapshot_has_model_weights(snap):
+                return False
+            tok_ok = os.path.isfile(os.path.join(snap, "tokenizer.json")) or os.path.isfile(
+                os.path.join(snap, "tokenizer.model")
+            )
+            return tok_ok
         except Exception:
             return False
+
+    def _load_tokenizer_via_tokenizer_json_object(self, use_local_only: bool) -> PreTrainedTokenizerFast:
+        """
+        Qwen3.x repos often ship tokenizer_class=TokenizersBackend and tiktoken-backed metadata.
+        AutoTokenizer / PreTrainedTokenizerFast.from_pretrained may try a broken slow->fast path.
+        Loading tokenizer.json via the `tokenizers` library + tokenizer_object avoids that.
+        """
+        from huggingface_hub import hf_hub_download
+        from huggingface_hub.errors import LocalEntryNotFoundError
+        from tokenizers import Tokenizer as TokenizersTokenizer
+
+        repo = self.model_name
+        cache = self.cache_dir
+
+        snap = self._get_snapshot_dir()
+        tok_path = os.path.join(snap, "tokenizer.json") if snap else ""
+        cfg_path = os.path.join(snap, "tokenizer_config.json") if snap else ""
+        if not (snap and os.path.isfile(tok_path) and os.path.isfile(cfg_path)):
+            try:
+                tok_path = hf_hub_download(
+                    repo_id=repo,
+                    filename="tokenizer.json",
+                    cache_dir=cache,
+                    local_files_only=use_local_only,
+                )
+                cfg_path = hf_hub_download(
+                    repo_id=repo,
+                    filename="tokenizer_config.json",
+                    cache_dir=cache,
+                    local_files_only=use_local_only,
+                )
+            except LocalEntryNotFoundError:
+                if not use_local_only:
+                    raise
+                tok_path = hf_hub_download(
+                    repo_id=repo,
+                    filename="tokenizer.json",
+                    cache_dir=cache,
+                    local_files_only=False,
+                )
+                cfg_path = hf_hub_download(
+                    repo_id=repo,
+                    filename="tokenizer_config.json",
+                    cache_dir=cache,
+                    local_files_only=False,
+                )
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+
+        fast = TokenizersTokenizer.from_file(tok_path)
+
+        exclude = {
+            "tokenizer_class",
+            "auto_map",
+            "backend",
+            "chat_template",
+            "chat_template_jinja",
+        }
+        init_kwargs = {k: v for k, v in cfg.items() if k not in exclude}
+        try:
+            tokenizer = PreTrainedTokenizerFast(tokenizer_object=fast, **init_kwargs)
+        except (TypeError, ValueError):
+            tokenizer = PreTrainedTokenizerFast(
+                tokenizer_object=fast,
+                eos_token=cfg.get("eos_token"),
+                pad_token=cfg.get("pad_token"),
+                bos_token=cfg.get("bos_token"),
+                unk_token=cfg.get("unk_token"),
+                model_max_length=cfg.get("model_max_length", 262144),
+                clean_up_tokenization_spaces=cfg.get("clean_up_tokenization_spaces", False),
+                add_prefix_space=cfg.get("add_prefix_space", False),
+                errors=cfg.get("errors", "replace"),
+                split_special_tokens=cfg.get("split_special_tokens", False),
+            )
+
+        tpl_path = ""
+        if snap:
+            cand = os.path.join(snap, "chat_template.jinja")
+            if os.path.isfile(cand):
+                tpl_path = cand
+        try:
+            if not tpl_path:
+                tpl_path = hf_hub_download(
+                    repo_id=repo,
+                    filename="chat_template.jinja",
+                    cache_dir=cache,
+                    local_files_only=use_local_only,
+                )
+        except LocalEntryNotFoundError:
+            if use_local_only:
+                try:
+                    tpl_path = hf_hub_download(
+                        repo_id=repo,
+                        filename="chat_template.jinja",
+                        cache_dir=cache,
+                        local_files_only=False,
+                    )
+                except Exception:
+                    tpl_path = ""
+            else:
+                tpl_path = ""
+        except Exception:
+            tpl_path = ""
+
+        if tpl_path and os.path.isfile(tpl_path):
+            with open(tpl_path, "r", encoding="utf-8") as f:
+                tokenizer.chat_template = f.read()
+        else:
+            tpl = cfg.get("chat_template")
+            if isinstance(tpl, str) and tpl.strip():
+                tokenizer.chat_template = tpl
+
+        return tokenizer
+
+    def _load_tokenizer(self, use_local_only: bool):
+        """
+        Some Qwen3.x hubs set tokenizer_class to TokenizersBackend, which AutoTokenizer
+        cannot resolve. Fall back to tokenizer.json + PreTrainedTokenizerFast(tokenizer_object=...).
+        """
+        kwargs = dict(
+            cache_dir=self.cache_dir,
+            trust_remote_code=self.trust_remote_code,
+            local_files_only=use_local_only,
+        )
+        try:
+            return AutoTokenizer.from_pretrained(self.model_name, **kwargs)
+        except ValueError as e:
+            err = str(e)
+            if "TokenizersBackend" not in err and "TokenizersBackendFast" not in err:
+                raise
+            return self._load_tokenizer_via_tokenizer_json_object(use_local_only)
 
     def load_model(self):
         """Load model (download if not already downloaded). When already in cache, use local only to avoid hitting HuggingFace."""
@@ -382,15 +573,11 @@ class QwenTextGenerator:
             return
 
         use_local_only = self.is_model_downloaded()
+        prev_hub_offline = os.environ.get("HF_HUB_OFFLINE")
         if use_local_only:
             os.environ["HF_HUB_OFFLINE"] = "1"
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.model_name,
-                cache_dir=self.cache_dir,
-                trust_remote_code=self.trust_remote_code,
-                local_files_only=use_local_only,
-            )
+            self.tokenizer = self._load_tokenizer(use_local_only)
             self._reset_forbidden_token_cache()
 
             if self.use_quantization:
@@ -417,6 +604,11 @@ class QwenTextGenerator:
                 self._start_inference_worker()
         except Exception as e:
             raise RuntimeError(f"Model loading failed: {e}")
+        finally:
+            if prev_hub_offline is None:
+                os.environ.pop("HF_HUB_OFFLINE", None)
+            else:
+                os.environ["HF_HUB_OFFLINE"] = prev_hub_offline
 
     def _fix_stream_generator_compatibility(self):
         """Fix transformers_stream_generator compatibility issues"""
