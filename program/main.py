@@ -72,9 +72,23 @@ Qt = None
 QTimer = None
 Live2DRenderer = None
 Live2DWidget = None
+# PyQt requires keeping a Python reference to QApplication; used before AIAgent._init_gui (LLM picker dialog).
+_qt_application_holder = None
 
 try:
-    from PyQt5.QtWidgets import QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QLineEdit
+    from PyQt5.QtWidgets import (
+        QApplication,
+        QDialog,
+        QVBoxLayout,
+        QHBoxLayout,
+        QLabel,
+        QPushButton,
+        QTextEdit,
+        QLineEdit,
+        QRadioButton,
+        QButtonGroup,
+        QDialogButtonBox,
+    )
     from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject, QMetaObject, Q_ARG
     PYQT5_AVAILABLE = True
     print("[Import] PyQt5 imported successfully")
@@ -1942,19 +1956,14 @@ def check_live2d_setup():
 
 def _choose_llm_preset_dialog() -> str:
     """Modal dialog to pick LLM preset before loading weights. Requires PyQt5."""
-    from PyQt5.QtWidgets import (
-        QApplication,
-        QDialog,
-        QVBoxLayout,
-        QLabel,
-        QRadioButton,
-        QButtonGroup,
-        QDialogButtonBox,
-    )
+    global _qt_application_holder
+    if QApplication is None:
+        raise RuntimeError("PyQt5 not available")
 
-    app = QApplication.instance()
-    if app is None:
-        QApplication(sys.argv)
+    if QApplication.instance() is None:
+        _qt_application_holder = QApplication(sys.argv)
+    else:
+        _qt_application_holder = QApplication.instance()
 
     dlg = QDialog()
     dlg.setWindowTitle("选择对话模型")
