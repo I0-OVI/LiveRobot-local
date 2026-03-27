@@ -19,19 +19,9 @@ from enum import Enum
 from typing import Optional, Callable
 from queue import Queue
 
-# Force HuggingFace offline when Qwen cache exists (before any hub/transformers use)
-# Avoids fetching custom_generate/generate.py and other repo files after weights load
-_script_dir = os.path.dirname(os.path.abspath(__file__))
-_qwen_cache = os.path.join(_script_dir, "utils", "models", "qwen2.5-7b-instruct")
-_qwen_model_dir = os.path.join(_qwen_cache, "models--Qwen--Qwen2.5-7B-Instruct")
-if os.path.isdir(_qwen_model_dir):
-    _snap = os.path.join(_qwen_model_dir, "snapshots")
-    if os.path.isdir(_snap) and os.listdir(_snap):
-        os.environ["HF_HUB_OFFLINE"] = "1"
-        os.environ["TRANSFORMERS_OFFLINE"] = "1"
-
 # Import path configuration utilities
 from utils.path_config import get_current_dir, get_model_paths
+from utils.llm_presets import LLM_PRESETS, resolve_llm_preset
 from utils.tang_audio import detect_and_play_tang_audio, get_tang_task_completed_message, get_tang_overlay_image_path
 
 # Import core behavior/state management
@@ -139,7 +129,8 @@ class AIAgent:
     
     def __init__(self, 
                  use_streaming: bool = True,
-                 model_name: str = "Qwen/Qwen2.5-7B-Instruct",
+                 llm_preset: str = "qwen2.5-7b",
+                 model_name: Optional[str] = None,
                  model_cache_dir: Optional[str] = None,
                  language: str = "zh-CN",
                  use_gui: bool = True,
@@ -176,8 +167,9 @@ class AIAgent:
         
         Args:
             use_streaming: Whether to use streaming inference, default True
-            model_name: Qwen model name
-            model_cache_dir: Model cache directory
+            llm_preset: Built-in preset id: "qwen2.5-7b" or "qwen3.5-9b-text" (ignored if model_name is set)
+            model_name: Optional HuggingFace model id override (advanced)
+            model_cache_dir: Optional cache directory override
             language: Default recognition language (zh-CN or en-US)
             use_gui: Whether to use GUI interface, default True
             model_path: Live2D model path (optional)
@@ -247,20 +239,27 @@ class AIAgent:
         if self.voice_synthesis is None:
             print("[Init] ⚠ Voice synthesis module unavailable (Fish Speech API mode and Edge TTS both failed)")
         
-        # Qwen text generator
-        if model_cache_dir is None:
-            current_dir = get_current_dir()
-            model_cache_dir = os.path.join(current_dir, "models", "qwen2.5-7b-instruct")
-            # Ensure directory exists
-            os.makedirs(model_cache_dir, exist_ok=True)
-        
-        print(f"[Init] Qwen model cache directory: {model_cache_dir}")
-        print(f"[Init] Directory path: {os.path.abspath(model_cache_dir)}")
+        # Qwen text generator (preset or explicit model_name)
+        current_dir = get_current_dir()
+        resolved_name, resolved_cache, trust_rc, used_preset = resolve_llm_preset(
+            llm_preset,
+            model_name_override=model_name,
+            model_cache_dir_override=model_cache_dir,
+            current_dir_for_models=current_dir,
+        )
+        os.makedirs(resolved_cache, exist_ok=True)
+        self.llm_preset = used_preset
+        self.llm_model_name = resolved_name
+
+        print(f"[Init] LLM preset: {used_preset} → {resolved_name}")
+        print(f"[Init] Qwen model cache directory: {resolved_cache}")
+        print(f"[Init] Directory path: {os.path.abspath(resolved_cache)}")
         print(f"[Info] Model will be permanently saved in this directory after download, won't be lost on restart")
         
         self.text_generator = QwenTextGenerator(
-            model_name=model_name,
-            cache_dir=model_cache_dir
+            model_name=resolved_name,
+            cache_dir=resolved_cache,
+            trust_remote_code=trust_rc,
         )
         
         # Live2D renderer (if available)
@@ -1941,9 +1940,108 @@ def check_live2d_setup():
     return True
 
 
+def _choose_llm_preset_dialog() -> str:
+    """Modal dialog to pick LLM preset before loading weights. Requires PyQt5."""
+    from PyQt5.QtWidgets import (
+        QApplication,
+        QDialog,
+        QVBoxLayout,
+        QLabel,
+        QRadioButton,
+        QButtonGroup,
+        QDialogButtonBox,
+    )
+
+    app = QApplication.instance()
+    if app is None:
+        QApplication(sys.argv)
+
+    dlg = QDialog()
+    dlg.setWindowTitle("选择对话模型")
+    dlg.setModal(True)
+
+    layout = QVBoxLayout()
+    layout.addWidget(
+        QLabel(
+            "请选择要加载的对话模型（首次运行会从 Hugging Face 下载权重）：\n"
+            "Please choose the chat model to load:"
+        )
+    )
+
+    rb_light = QRadioButton(
+        "Qwen2.5-7B-Instruct（4bit，显存占用较低，推荐多数显卡）\n"
+        f"    {LLM_PRESETS['qwen2.5-7b']['label']}"
+    )
+    rb_heavy = QRadioButton(
+        "Qwen3.5-9B 纯文本（4bit，无视觉塔，显存占用更高）\n"
+        f"    {LLM_PRESETS['qwen3.5-9b-text']['label']}"
+    )
+    rb_light.setChecked(True)
+    group = QButtonGroup(dlg)
+    group.addButton(rb_light)
+    group.addButton(rb_heavy)
+    layout.addWidget(rb_light)
+    layout.addWidget(rb_heavy)
+
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    layout.addWidget(buttons)
+    dlg.setLayout(layout)
+    dlg.resize(520, 220)
+
+    if dlg.exec_() != QDialog.Accepted:
+        print("[LLM] 已取消 / Cancelled.")
+        sys.exit(0)
+
+    return "qwen3.5-9b-text" if rb_heavy.isChecked() else "qwen2.5-7b"
+
+
+def _resolve_llm_preset_startup() -> str:
+    """
+    Default: GUI dialog to choose model.
+    Override: --llm qwen2.5-7b | qwen3.5-9b-text (skip dialog), or LIVEBOT_LLM with same ids.
+    Fallback without PyQt: --llm ask uses stdin; otherwise qwen2.5-7b.
+    """
+    import argparse
+
+    env = (os.environ.get("LIVEBOT_LLM") or "").strip().lower()
+    default_mode = "gui"
+    if env in ("qwen2.5-7b", "qwen3.5-9b-text"):
+        default_mode = env
+
+    parser = argparse.ArgumentParser(description="LiveRobot AI Agent")
+    parser.add_argument(
+        "--llm",
+        choices=["gui", "qwen2.5-7b", "qwen3.5-9b-text", "ask"],
+        default=default_mode,
+        help="gui=弹窗选择 (默认); 或直接指定模型; ask=无界面时终端选择",
+    )
+    args, _unknown = parser.parse_known_args()
+
+    if args.llm == "qwen2.5-7b":
+        return "qwen2.5-7b"
+    if args.llm == "qwen3.5-9b-text":
+        return "qwen3.5-9b-text"
+
+    if args.llm == "ask":
+        if sys.stdin.isatty():
+            print("\n[LLM] Select chat model:")
+            print("  1) Qwen2.5-7B-Instruct")
+            print("  2) Qwen3.5-9B text-only")
+            c = input("Enter 1 or 2 [default 1]: ").strip() or "1"
+            return "qwen3.5-9b-text" if c == "2" else "qwen2.5-7b"
+        print("[LLM] stdin is not a TTY; using qwen2.5-7b.")
+        return "qwen2.5-7b"
+
+    # gui (default)
+    if PYQT5_AVAILABLE:
+        return _choose_llm_preset_dialog()
+    print("[LLM] PyQt5 不可用，无法显示选择窗口。请使用: python main.py --llm qwen2.5-7b 或 --llm qwen3.5-9b-text")
+    return "qwen2.5-7b"
+
+
 if __name__ == "__main__":
-    import os
-    
     # Check Live2D setup
     if not check_live2d_setup():
         print("\nWarning: Live2D setup check failed")
@@ -1952,14 +2050,16 @@ if __name__ == "__main__":
         if response != 'y':
             print("Cancelled")
             exit(0)
-    
+
+    llm_preset = _resolve_llm_preset_startup()
+
     # Create AI Agent
     agent = AIAgent(
-        use_streaming=True,  # Enable streaming inference
-        language="zh-CN",    # Default Chinese
-        use_gui=True,        # Enable GUI
-        model_path=None      # Auto-detect model path
+        use_streaming=True,
+        language="zh-CN",
+        use_gui=True,
+        model_path=None,
+        llm_preset=llm_preset,
     )
-    
-    # Start
+
     agent.start()

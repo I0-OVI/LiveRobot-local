@@ -48,7 +48,7 @@ This project makes use of the following open-source projects and resources:
 - Live2D Cubism SDK (Official SDK)  
   https://www.live2d.com  
 
-- Qwen2.5-7B-Instruct (default: [`Qwen/Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct); Hub weights are FP16/BF16, loaded in **4-bit** at runtime via bitsandbytes when CUDA is available)  
+- Chat LLM: on startup a **GUI dialog** lets you pick **Qwen2.5-7B-Instruct** or **Qwen3.5-9B text-only** ([`principled-intelligence/Qwen3.5-9B-text-only`](https://huggingface.co/principled-intelligence/Qwen3.5-9B-text-only)); weights are FP16/BF16 on the Hub, loaded in **4-bit** via bitsandbytes when CUDA is available. Skip the dialog with `python main.py --llm qwen2.5-7b` or `--llm qwen3.5-9b-text`, or set env `LIVEBOT_LLM` to one of those ids. Force the dialog with `--llm gui`.  
   https://huggingface.co/Qwen  
 
 Thanks to the authors and communities for their excellent work.

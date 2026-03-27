@@ -1,6 +1,6 @@
 """
-Qwen 7B-class Instruct model, 4-bit quantized loading via bitsandbytes (when CUDA available).
-Uses HuggingFace Transformers chat templates + generate (Qwen2.5-style); no model.chat() / qwen_generation_utils.
+Qwen Instruct models, 4-bit loading via bitsandbytes when CUDA is available.
+Uses HuggingFace Transformers chat templates + generate; no legacy Qwen1 model.chat() / qwen_generation_utils.
 """
 import os
 import queue
@@ -109,16 +109,23 @@ class _WeatherNaturalizeJob:
 class QwenTextGenerator:
     """Qwen Instruct (default Qwen2.5-7B) 4-bit text generator. Prompts and forbidden words from setup.txt."""
 
-    def __init__(self, model_name: str = "Qwen/Qwen2.5-7B-Instruct", cache_dir: Optional[str] = None):
+    def __init__(
+        self,
+        model_name: str = "Qwen/Qwen2.5-7B-Instruct",
+        cache_dir: Optional[str] = None,
+        trust_remote_code: bool = False,
+    ):
         """
         Initialize Qwen text generator
 
         Args:
             model_name: HuggingFace model name, default "Qwen/Qwen2.5-7B-Instruct"
             cache_dir: Model cache directory, if None uses default HuggingFace cache
+            trust_remote_code: Passed to from_pretrained (some checkpoints need True)
         """
         self.model_name = model_name
         self.cache_dir = cache_dir
+        self.trust_remote_code = trust_remote_code
         self.model = None
         self.tokenizer = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -360,7 +367,7 @@ class QwenTextGenerator:
                 AutoTokenizer.from_pretrained(
                     self.model_name,
                     cache_dir=self.cache_dir,
-                    trust_remote_code=False,
+                    trust_remote_code=self.trust_remote_code,
                     local_files_only=True,
                 )
                 return True
@@ -381,7 +388,7 @@ class QwenTextGenerator:
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.model_name,
                 cache_dir=self.cache_dir,
-                trust_remote_code=False,
+                trust_remote_code=self.trust_remote_code,
                 local_files_only=use_local_only,
             )
             self._reset_forbidden_token_cache()
@@ -392,7 +399,7 @@ class QwenTextGenerator:
                     cache_dir=self.cache_dir,
                     quantization_config=self.quantization_config,
                     device_map="auto",
-                    trust_remote_code=False,
+                    trust_remote_code=self.trust_remote_code,
                     local_files_only=use_local_only,
                 )
             else:
@@ -400,7 +407,7 @@ class QwenTextGenerator:
                     self.model_name,
                     cache_dir=self.cache_dir,
                     device_map="auto",
-                    trust_remote_code=False,
+                    trust_remote_code=self.trust_remote_code,
                     torch_dtype=torch.float32,
                     local_files_only=use_local_only,
                 )

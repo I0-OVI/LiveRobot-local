@@ -35,13 +35,22 @@ pip install live2d-py
 
 The default model is downloaded from Hugging Face on first run (unless already cached). Hub weights are **not** pre-quantized; with a GPU the app loads them in **4-bit** using bitsandbytes.
 
-- **Default repo**: [`Qwen/Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct) (Qwen2.5 **Instruct**; chat uses tokenizer `chat_template` + `generate`, not legacy `model.chat()`).
-- **Default cache directory** (when using built-in defaults): `program/utils/models/qwen2.5-7b-instruct` (Hugging Face layout: `models--Qwen--Qwen2.5-7B-Instruct/snapshots/...`).
+**Choose at startup:** A **PyQt dialog** opens by default to pick the model. To skip it: `python main.py --llm qwen2.5-7b` or `--llm qwen3.5-9b-text`, or set env `LIVEBOT_LLM` to one of those ids. Use `--llm gui` to force the dialog. Headless / no PyQt: `--llm ask` (terminal) or an explicit `--llm` preset. In code: `AIAgent(llm_preset="qwen2.5-7b")` or `llm_preset="qwen3.5-9b-text"`.
+
+**Presets:**
+
+| Preset | Hub repo | Local cache folder |
+|--------|----------|------------------------|
+| `qwen2.5-7b` (default) | [`Qwen/Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct) | `program/utils/models/qwen2.5-7b-instruct` |
+| `qwen3.5-9b-text` | [`principled-intelligence/Qwen3.5-9B-text-only`](https://huggingface.co/principled-intelligence/Qwen3.5-9B-text-only) | `program/utils/models/qwen3.5-9b-text-only` |
+
+**Requirements:** `transformers>=5.2.0` for Qwen3.5 text-only; chat uses `chat_template` + `generate`.
+
 - **Organization page**: https://huggingface.co/Qwen
 
 **Windows Task Manager vs real VRAM:** You may see **GPU0** (Intel UHD) and **GPU1** (NVIDIA). The large number on the Intel GPU is mostly **system RAM** used as *shared* graphics memory — not fast discrete VRAM. On the NVIDIA page, look at **Dedicated GPU memory** (e.g. **8 GB** on many RTX 4070 Laptop SKUs): that is what **CUDA / PyTorch** uses for model weights. **Shared GPU memory** there is also **system RAM** the driver can borrow when dedicated is full; it is **much slower** and not the same as having more VRAM.
 
-**Other checkpoints:** Plan around **dedicated VRAM**. **7B + 4-bit** (default) usually fits **~8 GB** dedicated with reasonable context. **14B-class 4-bit** may need more headroom; confirm with `nvidia-smi`. Lighter options include **Qwen2.5-3B-Instruct**. Override via `AIAgent(..., model_name=...)` in `program/main.py` (must be an Instruct model with a `chat_template` in the tokenizer).
+**Other checkpoints:** Plan around **dedicated VRAM**. **7B + 4-bit** (default) usually fits **~8 GB** dedicated with reasonable context; **9B + 4-bit** is heavier. Override via `AIAgent(..., model_name=...)` for advanced use (must have a `chat_template` in the tokenizer).
 
 **Qwen3 (e.g. [`Qwen/Qwen3-8B`](https://huggingface.co/Qwen/Qwen3-8B)):** Same code path as Qwen2.5; we call `apply_chat_template(..., enable_thinking=False)` when supported so output matches **non-thinking** Qwen3 behavior (aligned with Qwen2.5-style chat). Use **`transformers>=4.51.0`** for Qwen3 (older versions raise `KeyError: 'qwen3'`). **8B + 4-bit** is a bit heavier than 7B — verify on your GPU. MoE variants need enough VRAM for active experts at your quantization level.
 
