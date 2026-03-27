@@ -20,6 +20,7 @@ from transformers import (
 from threading import Thread
 from .tool_manager import ToolManager
 from utils.setup_loader import load_setup, get_user_name, parse_forbidden_words_list
+from utils.time_context import local_time_context_block
 
 
 class ForbiddenWordsLogitsProcessor(LogitsProcessor):
@@ -39,19 +40,23 @@ class ForbiddenWordsLogitsProcessor(LogitsProcessor):
 class _SyncChatJob:
     """Runs _run_chat_direct on the inference worker thread."""
 
-    __slots__ = ("gen", "user_input", "history", "enhanced_prompt", "future")
+    __slots__ = ("gen", "user_input", "history", "enhanced_prompt", "future", "max_new_tokens")
 
-    def __init__(self, gen, user_input, history, enhanced_prompt, future):
+    def __init__(self, gen, user_input, history, enhanced_prompt, future, max_new_tokens: int = 80):
         self.gen = gen
         self.user_input = user_input
         self.history = history
         self.enhanced_prompt = enhanced_prompt
         self.future = future
+        self.max_new_tokens = max_new_tokens
 
     def execute(self) -> None:
         try:
             out = self.gen._run_chat_direct(
-                self.user_input, self.history, self.enhanced_prompt
+                self.user_input,
+                self.history,
+                self.enhanced_prompt,
+                max_new_tokens=self.max_new_tokens,
             )
             self.future.set_result(out)
         except BaseException as e:
@@ -189,16 +194,21 @@ class QwenTextGenerator:
             enhanced_prompt: Optional enhanced prompt from RAG (if provided, uses this instead)
 
         Returns:
-            System prompt string
+            System prompt string (includes local time-of-day for weather / scene consistency)
         """
         if enhanced_prompt:
-            return enhanced_prompt
+            core = enhanced_prompt
+        else:
+            has_chinese = any("\u4e00" <= char <= "\u9fff" for char in user_input)
+            if has_chinese:
+                core = self.SYSTEM_PROMPT_BASE_ZH + self.DYNAMIC_PROMPT_ZH
+            else:
+                core = self.SYSTEM_PROMPT_BASE_EN + self.DYNAMIC_PROMPT_EN
 
-        has_chinese = any("\u4e00" <= char <= "\u9fff" for char in user_input)
-
-        if has_chinese:
-            return self.SYSTEM_PROMPT_BASE_ZH + self.DYNAMIC_PROMPT_ZH
-        return self.SYSTEM_PROMPT_BASE_EN + self.DYNAMIC_PROMPT_EN
+        time_block = local_time_context_block(user_input)
+        if not time_block:
+            return core
+        return core.rstrip() + "\n\n" + time_block
 
     def _get_forbidden_token_ids(self) -> Set[int]:
         """Get all forbidden word token IDs"""
@@ -500,6 +510,7 @@ class QwenTextGenerator:
         user_input: str,
         history: Optional[List[Tuple[str, str]]] = None,
         enhanced_prompt: Optional[str] = None,
+        max_new_tokens: int = 80,
     ) -> Tuple[str, List[Tuple[str, str]]]:
         """
         Run generate on the current thread only. Used by the inference worker and stream fallback.
@@ -516,7 +527,7 @@ class QwenTextGenerator:
 
         gen_kwargs = {
             **inputs,
-            "max_new_tokens": 80,
+            "max_new_tokens": max_new_tokens,
             "temperature": 0.3,
             "repetition_penalty": 1.15,
             "do_sample": True,
@@ -544,6 +555,7 @@ class QwenTextGenerator:
         history: Optional[List[Tuple[str, str]]] = None,
         enhanced_prompt: Optional[str] = None,
         timeout: Optional[float] = None,
+        max_new_tokens: int = 80,
     ) -> Tuple[str, List[Tuple[str, str]]]:
         """
         Chat interface, returns reply and updated history.
@@ -554,6 +566,7 @@ class QwenTextGenerator:
             history: Conversation history
             enhanced_prompt: Optional enhanced prompt from RAG system
             timeout: If set, max seconds to wait for the worker (raises concurrent.futures.TimeoutError)
+            max_new_tokens: Generation cap (default 80 for short pet replies; use higher for summaries, etc.)
 
         Returns:
             Tuple of (response, updated_history)
@@ -564,7 +577,9 @@ class QwenTextGenerator:
 
         fut: Future = Future()
         self._task_queue.put(
-            _SyncChatJob(self, user_input, list(history), enhanced_prompt, fut)
+            _SyncChatJob(
+                self, user_input, list(history), enhanced_prompt, fut, max_new_tokens=max_new_tokens
+            )
         )
         if timeout is not None:
             return fut.result(timeout=timeout)
@@ -650,6 +665,6 @@ class QwenTextGenerator:
                     yield processed
         except Exception:
             response, _ = self._run_chat_direct(
-                user_input, history, enhanced_prompt=enhanced_prompt
+                user_input, history, enhanced_prompt=enhanced_prompt, max_new_tokens=80
             )
             yield response

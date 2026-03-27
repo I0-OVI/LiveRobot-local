@@ -166,7 +166,11 @@ class AIAgent:
                  rag_llm_trigger_timeout_sec: Optional[float] = None,
                  rag_use_llm_long_term_eval: Optional[bool] = None,
                  rag_save_llm_timeout_sec: Optional[float] = None,
-                 rag_use_save_worker: Optional[bool] = None):
+                 rag_use_save_worker: Optional[bool] = None,
+                 replay_conversation_summary_enabled: bool = True,
+                 replay_summary_max_output_tokens: int = 150,
+                 replay_summary_llm_max_new_tokens: int = 256,
+                 also_persist_summary_to_rag: bool = False):
         """
         Initialize AI Agent
         
@@ -198,6 +202,10 @@ class AIAgent:
             rag_use_llm_long_term_eval: If set, overrides setup: one LLM JSON for store + importance on async RAG save
             rag_save_llm_timeout_sec: If set, overrides setup: max seconds for save-side LLM (combined or importance-only)
             rag_use_save_worker: If set, overrides setup: single-queue worker for RAG saves vs thread-per-save
+            replay_conversation_summary_enabled: Rolling replay summary to shorten Qwen context (MemoryCoordinator path)
+            replay_summary_max_output_tokens: Stored summary length cap after LLM
+            replay_summary_llm_max_new_tokens: max_new_tokens for summarization chat() call
+            also_persist_summary_to_rag: Also write each rolling summary to Chroma RAG
         """
         self.use_streaming = use_streaming
         self.language = language
@@ -397,6 +405,10 @@ class AIAgent:
                     rag_use_llm_long_term_eval=eff_lte,
                     rag_save_llm_timeout_sec=eff_save_t,
                     rag_use_save_worker=eff_sw,
+                    replay_conversation_summary_enabled=replay_conversation_summary_enabled,
+                    replay_summary_max_output_tokens=replay_summary_max_output_tokens,
+                    replay_summary_llm_max_new_tokens=replay_summary_llm_max_new_tokens,
+                    also_persist_summary_to_rag=also_persist_summary_to_rag,
                 )
 
                 print(f"[Init] ✓ Memory Coordinator initialized (Replay + RAG)")
@@ -404,7 +416,11 @@ class AIAgent:
                 print(f"[Init] Replay path: {os.path.abspath(replay_persist_path)}, RAG path: {os.path.abspath(memory_persist_path)}")
                 print(f"[Init] Replay token budget: {replay_token_budget}")
                 print(f"[Init] RAG top_k: {rag_top_k}, similarity_threshold: {rag_similarity_threshold}")
-                print(f"[Init] RAG summary interval: {rag_summary_interval}")
+                print(
+                    f"[Init] Replay rolling summary: enabled={replay_conversation_summary_enabled}, "
+                    f"interval={rag_summary_interval}, out_tokens_cap={replay_summary_max_output_tokens}, "
+                    f"llm_max_new_tokens={replay_summary_llm_max_new_tokens}, persist_to_rag={also_persist_summary_to_rag}"
+                )
                 print(f"[Init] RAG auto-merge every: {rag_auto_merge_every} saves (0=disabled)")
                 print(
                     f"[Init] RAG trigger: use_llm={eff_llm}, llm_timeout_sec={eff_tt}, "

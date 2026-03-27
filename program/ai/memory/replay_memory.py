@@ -16,6 +16,10 @@ except ImportError:
 
 REPLAY_FILENAME = "replay.json"
 
+# Synthetic first turn so chat templates keep user/assistant alternation
+SUMMARY_USER_PREFIX = "[Earlier conversation summary]\n"
+SUMMARY_ASSISTANT_ACK = "好的，已了解。"
+
 
 class ReplayMemory:
     """
@@ -47,6 +51,7 @@ class ReplayMemory:
         self.session_id = "replay"
         self.turns: List[Dict] = []
         self.total_tokens = 0
+        self.conversation_summary: str = ""
         
         self.encoder = None
         if TIKTOKEN_AVAILABLE:
@@ -119,6 +124,45 @@ class ReplayMemory:
             self._save()
         
         return turn["turn_id"]
+
+    def get_conversation_summary(self) -> str:
+        return self.conversation_summary or ""
+
+    def set_conversation_summary(self, text: str) -> None:
+        self.conversation_summary = (text or "").strip()
+        if self.persist_sessions:
+            self._save()
+
+    def pop_turns_from_start(self, n: int) -> List[Dict]:
+        """
+        Remove and return the oldest n turns (for rolling summarization).
+        Updates total_tokens and re-numbers turn_id.
+        """
+        if n <= 0 or not self.turns:
+            return []
+        n = min(n, len(self.turns))
+        popped = self.turns[:n]
+        self.turns = self.turns[n:]
+        for t in popped:
+            self.total_tokens -= t.get("token_count", 0)
+        for i, t in enumerate(self.turns, 1):
+            t["turn_id"] = i
+        if self.persist_sessions:
+            self._save()
+        return popped
+
+    def _synthetic_summary_turn(self) -> Optional[Tuple[str, str]]:
+        s = (self.conversation_summary or "").strip()
+        if not s:
+            return None
+        return (f"{SUMMARY_USER_PREFIX}{s}", SUMMARY_ASSISTANT_ACK)
+
+    def _synthetic_summary_token_cost(self) -> int:
+        t = self._synthetic_summary_turn()
+        if not t:
+            return 0
+        u, a = t
+        return self._count_tokens(u) + self._count_tokens(a)
     
     def get_replay_history(self, token_budget: Optional[int] = None) -> List[Tuple[str, str]]:
         """
@@ -131,23 +175,32 @@ class ReplayMemory:
             List of (user_input, assistant_response) tuples, ordered from oldest to newest
         """
         budget = token_budget if token_budget is not None else self.token_budget
-        
+        syn_cost = self._synthetic_summary_token_cost()
+        remaining = max(0, budget - syn_cost)
+
         if not self.turns:
-            return []
+            out = []
+            st = self._synthetic_summary_turn()
+            if st and syn_cost <= budget:
+                out.append(st)
+            return out
         
-        # Select turns from newest to oldest until budget is reached
+        # Select turns from newest to oldest until remaining budget is reached
         selected_turns = []
         used_tokens = 0
         
         for turn in reversed(self.turns):
-            if used_tokens + turn["token_count"] <= budget:
+            if used_tokens + turn["token_count"] <= remaining:
                 selected_turns.insert(0, turn)  # Insert at beginning to maintain order
                 used_tokens += turn["token_count"]
             else:
                 break
         
-        # Return as (user_input, assistant_response) tuples
-        return [(turn["user_input"], turn["assistant_response"]) for turn in selected_turns]
+        tuples_out = [(turn["user_input"], turn["assistant_response"]) for turn in selected_turns]
+        st = self._synthetic_summary_turn()
+        if st and syn_cost <= budget:
+            return [st] + tuples_out
+        return tuples_out
     
     def get_replay_history_with_metadata(self, token_budget: Optional[int] = None) -> List[Dict]:
         """
@@ -160,7 +213,9 @@ class ReplayMemory:
             List of turn dictionaries with metadata
         """
         budget = token_budget if token_budget is not None else self.token_budget
-        
+        syn_cost = self._synthetic_summary_token_cost()
+        remaining = max(0, budget - syn_cost)
+
         if not self.turns:
             return []
         
@@ -168,7 +223,7 @@ class ReplayMemory:
         used_tokens = 0
         
         for turn in reversed(self.turns):
-            if used_tokens + turn["token_count"] <= budget:
+            if used_tokens + turn["token_count"] <= remaining:
                 selected_turns.insert(0, turn)
                 used_tokens += turn["token_count"]
             else:
@@ -181,9 +236,10 @@ class ReplayMemory:
         return self.session_id
     
     def clear_session(self):
-        """Clear all turns"""
+        """Clear all turns and rolling conversation summary"""
         self.turns = []
         self.total_tokens = 0
+        self.conversation_summary = ""
         
         if self.persist_sessions:
             self._save()
@@ -208,6 +264,7 @@ class ReplayMemory:
                 "turns": self.turns,
                 "total_tokens": self.total_tokens,
                 "max_turns": self.max_turns,
+                "conversation_summary": self.conversation_summary,
                 "updated_at": datetime.now().isoformat()
             }
             with open(file_path, 'w', encoding='utf-8') as f:
@@ -226,6 +283,7 @@ class ReplayMemory:
                 data = json.load(f)
             self.turns = data.get("turns", [])
             self.total_tokens = data.get("total_tokens", 0)
+            self.conversation_summary = data.get("conversation_summary") or ""
             if len(self.turns) > self.max_turns:
                 # Truncate if loaded more than current max_turns
                 excess = len(self.turns) - self.max_turns

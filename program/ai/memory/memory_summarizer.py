@@ -1,165 +1,129 @@
 """
-Memory summarizer module
-Generates summaries of conversations every N turns using LLM
+Memory summarizer: rolling conversation summary for Replay compaction (Qwen via chat queue).
 """
 from typing import List, Dict, Optional
-from datetime import datetime
+
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
+
+# User-specified instructions (English); rolling merge adds structured sections below.
+SUMMARY_INSTRUCTIONS = """Summarize the following conversation.
+Keep only information that may be useful for future interactions.
+Remove greetings and irrelevant details.
+Do not add information that was not explicitly stated.
+Limit the summary to 150 tokens."""
+
+
+def _truncate_to_tokens(text: str, max_tokens: int) -> str:
+    if max_tokens <= 0 or not (text or "").strip():
+        return (text or "").strip()
+    if TIKTOKEN_AVAILABLE:
+        try:
+            enc = tiktoken.get_encoding("cl100k_base")
+            ids = enc.encode(text)
+            if len(ids) <= max_tokens:
+                return text.strip()
+            return enc.decode(ids[:max_tokens]).strip()
+        except Exception:
+            pass
+    # Fallback: ~4 chars per token
+    cap = max_tokens * 4
+    s = text.strip()
+    return s[:cap] if len(s) > cap else s
 
 
 class MemorySummarizer:
-    """Memory summarizer for periodic summary generation"""
-    
-    def __init__(self, summary_interval: int = 10, text_generator=None):
-        """
-        Initialize memory summarizer
-        
-        Args:
-            summary_interval: Number of turns between summaries (default: 10)
-            text_generator: QwenTextGenerator instance for generating summaries
-        """
-        self.summary_interval = summary_interval
+    """Builds rolling summaries for Replay compaction using the shared text generator."""
+
+    def __init__(
+        self,
+        summary_interval: int = 10,
+        text_generator=None,
+        max_output_tokens: int = 150,
+        llm_max_new_tokens: int = 256,
+    ):
+        self.summary_interval = max(1, int(summary_interval))
         self.text_generator = text_generator
-        self.turn_count = 0
-        self.last_summary_turn = 0
-    
-    def should_generate_summary(self) -> bool:
-        """
-        Check if a summary should be generated
-        
-        Returns:
-            True if summary should be generated
-        """
-        self.turn_count += 1
-        return (self.turn_count - self.last_summary_turn) >= self.summary_interval
-    
-    def generate_summary(self, recent_memories: List[Dict], max_length: int = 100) -> Optional[str]:
-        """
-        Generate a summary of recent memories using LLM
-        
-        Args:
-            recent_memories: List of recent memory dictionaries
-            max_length: Maximum length of summary in characters
-        
-        Returns:
-            Generated summary text, or None if generation fails
-        """
-        if not self.text_generator:
-            print("[MemorySummarizer] Warning: No text generator available for summary generation")
-            return None
-        
-        if not recent_memories:
-            return None
-        
-        try:
-            # Build prompt with recent memories
-            memories_text = "\n\n".join([
-                f"用户: {m.get('metadata', {}).get('user_input', '')}\n助手: {m.get('metadata', {}).get('assistant_response', '')}"
-                for m in recent_memories
-            ])
-            
-            # Create summary prompt
-            prompt = f"""请总结以下对话的核心内容，生成一个简洁的summary（不超过{max_length}字）：
+        self.max_output_tokens = max(1, int(max_output_tokens))
+        self.llm_max_new_tokens = max(32, int(llm_max_new_tokens))
 
-{memories_text}
+    def set_text_generator(self, text_generator):
+        self.text_generator = text_generator
 
-请用简洁的语言总结这段对话的主要内容和要点。Summary:"""
-            
-            # Generate summary using text generator
-            # Use generate_simple for non-streaming generation
-            if hasattr(self.text_generator, 'generate_simple'):
-                summary = self.text_generator.generate_simple(prompt)
-            elif hasattr(self.text_generator, 'generate_text'):
-                summary = self.text_generator.generate_text(prompt, max_new_tokens=50)
-            else:
-                print("[MemorySummarizer] Warning: Text generator does not support summary generation")
-                return None
-            
-            # Clean and truncate summary
-            summary = summary.strip()
-            if len(summary) > max_length:
-                summary = summary[:max_length] + "..."
-            
-            self.last_summary_turn = self.turn_count
-            print(f"[MemorySummarizer] Generated summary: {summary[:50]}...")
-            
-            return summary
-            
-        except Exception as e:
-            print(f"[MemorySummarizer] Error generating summary: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-    
-    def generate_summary_from_turns(self, turns: List[Dict], max_length: int = 100) -> Optional[str]:
-        """
-        Generate summary from conversation turns (for Replay memory)
-        
-        Args:
-            turns: List of turn dictionaries with user_input and assistant_response
-            max_length: Maximum length of summary
-        
-        Returns:
-            Generated summary text
-        """
-        if not self.text_generator:
-            return None
-        
-        if not turns:
-            return None
-        
-        try:
-            # Build prompt
-            turns_text = "\n\n".join([
-                f"用户: {turn.get('user_input', '')}\n助手: {turn.get('assistant_response', '')}"
-                for turn in turns
-            ])
-            
-            prompt = f"""请总结以下对话的核心内容，生成一个简洁的summary（不超过{max_length}字）：
-
-{turns_text}
-
-请用简洁的语言总结这段对话的主要内容和要点。Summary:"""
-            
-            # Generate summary
-            if hasattr(self.text_generator, 'generate_simple'):
-                summary = self.text_generator.generate_simple(prompt)
-            elif hasattr(self.text_generator, 'generate_text'):
-                summary = self.text_generator.generate_text(prompt, max_new_tokens=50)
-            else:
-                return None
-            
-            summary = summary.strip()
-            if len(summary) > max_length:
-                summary = summary[:max_length] + "..."
-            
-            return summary
-            
-        except Exception as e:
-            print(f"[MemorySummarizer] Error generating summary from turns: {e}")
-            return None
-    
-    def reset_turn_count(self):
-        """Reset turn count (useful for new sessions)"""
-        self.turn_count = 0
-        self.last_summary_turn = 0
-    
     def set_summary_interval(self, interval: int):
-        """
-        Update summary interval
-        
-        Args:
-            interval: New summary interval (must be positive)
-        """
         if interval > 0:
             self.summary_interval = interval
         else:
             raise ValueError(f"Summary interval must be positive, got {interval}")
-    
-    def set_text_generator(self, text_generator):
+
+    def rolling_merge(
+        self,
+        previous_summary: str,
+        turns: List[Dict],
+    ) -> Optional[str]:
         """
-        Set text generator for summary generation
-        
-        Args:
-            text_generator: QwenTextGenerator instance
+        Merge previous_summary with transcript from turn dicts (user_input / assistant_response).
+        Returns trimmed summary text or None on failure.
         """
-        self.text_generator = text_generator
+        if not self.text_generator or not turns:
+            return None
+        if getattr(self.text_generator, "model", None) is None:
+            return None
+
+        turns_text = "\n\n".join(
+            f"用户: {t.get('user_input', '')}\n助手: {t.get('assistant_response', '')}"
+            for t in turns
+        )
+        prev = (previous_summary or "").strip()
+        prompt = (
+            f"{SUMMARY_INSTRUCTIONS}\n\n"
+            f"Previous summary (may be empty):\n{prev if prev else '(none)'}\n\n"
+            f"New conversation lines to merge:\n{turns_text}\n\n"
+            "Summary:"
+        )
+
+        try:
+            if hasattr(self.text_generator, "chat"):
+                response, _ = self.text_generator.chat(
+                    prompt,
+                    history=[],
+                    enhanced_prompt=None,
+                    max_new_tokens=self.llm_max_new_tokens,
+                )
+            else:
+                return None
+        except Exception as e:
+            print(f"[MemorySummarizer] rolling_merge chat failed: {e}")
+            return None
+
+        out = (response or "").strip()
+        if not out:
+            return None
+        return _truncate_to_tokens(out, self.max_output_tokens)
+
+    def reset_turn_count(self):
+        """Legacy no-op (rolling compaction uses Replay turn counts)."""
+        pass
+
+    # --- Legacy API used by older scripts / tests ---
+    def should_generate_summary(self) -> bool:
+        return False
+
+    def generate_summary(self, recent_memories: List[Dict], max_length: int = 100) -> Optional[str]:
+        if not recent_memories:
+            return None
+        turns = [
+            {
+                "user_input": m.get("metadata", {}).get("user_input", ""),
+                "assistant_response": m.get("metadata", {}).get("assistant_response", ""),
+            }
+            for m in recent_memories
+        ]
+        return self.rolling_merge("", turns)
+
+    def generate_summary_from_turns(self, turns: List[Dict], max_length: int = 100) -> Optional[str]:
+        del max_length  # unused; output capped by max_output_tokens
+        return self.rolling_merge("", turns)

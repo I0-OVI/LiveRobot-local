@@ -21,6 +21,13 @@ except ImportError:  # e.g. tests with minimal sys.path
     def get_default_weather_city():  # type: ignore
         return None
 
+try:
+    from utils.time_context import local_time_short_for_tool
+except ImportError:
+
+    def local_time_short_for_tool() -> str:  # type: ignore
+        return ""
+
 logger = logging.getLogger(__name__)
 
 # Chinese phrases that indicate a real weather question (allow default city when no place named)
@@ -380,6 +387,9 @@ class ToolManager:
                     current.get("weatherDesc", [{}])[0].get("value", "未知"),
                 )
                 # No district/city name — model will phrase naturally for the user
+                tline = local_time_short_for_tool()
+                if tline:
+                    return f"{desc}，气温{temp_c}°C。（{tline}）"
                 return f"{desc}，气温{temp_c}°C"
             return f"抱歉，查询{city}的天气信息时出现错误。"
         except Exception as e:

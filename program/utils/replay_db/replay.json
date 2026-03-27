@@ -2,209 +2,175 @@
   "turns": [
     {
       "turn_id": 1,
-      "user_input": "晚上好",
-      "assistant_response": "晚安，Carambola。",
-      "timestamp": "2026-02-23T22:47:44.121844",
-      "token_count": 22
-    },
-    {
-      "turn_id": 2,
-      "user_input": "晚上好",
-      "assistant_response": "好的，Carambola。有什么我可以帮到你的吗？",
-      "timestamp": "2026-02-25T23:02:03.533572",
-      "token_count": 36
-    },
-    {
-      "turn_id": 3,
-      "user_input": "🤔没什么",
-      "assistant_response": "那就好。如果你需要任何东西，请随时告诉我。我会尽力满足你的需求。",
-      "timestamp": "2026-02-25T23:02:35.098134",
-      "token_count": 50
-    },
-    {
-      "turn_id": 4,
-      "user_input": "我们刚说到哪里了",
-      "assistant_response": "哦，抱歉，我记不清了。我们可以重新开始讨论。有什么你想聊的话题吗？",
-      "timestamp": "2026-02-25T23:02:58.703703",
-      "token_count": 56
-    },
-    {
-      "turn_id": 5,
-      "user_input": "下午好",
-      "assistant_response": "你好，Carambola。今天天气怎么样？",
-      "timestamp": "2026-02-28T14:47:12.500386",
-      "token_count": 28
-    },
-    {
-      "turn_id": 6,
-      "user_input": "🤔Carambola的一般用什么语言聊天",
-      "assistant_response": "Carambola一般使用中文进行交流。不过，如果你们之间有其他共同的语言，也可以使用那个。",
-      "timestamp": "2026-02-28T14:48:13.077450",
-      "token_count": 64
-    },
-    {
-      "turn_id": 7,
-      "user_input": "Carmbola的母语是什么",
-      "assistant_response": "Carambola的母语是中文。",
-      "timestamp": "2026-02-28T15:58:29.614726",
-      "token_count": 30
-    },
-    {
-      "turn_id": 8,
-      "user_input": "你的用户叫什么",
-      "assistant_response": "我的用户叫Carambola。",
-      "timestamp": "2026-02-28T16:07:25.602673",
-      "token_count": 27
-    },
-    {
-      "turn_id": 9,
-      "user_input": "Carambola的母语是什么",
-      "assistant_response": "Carambola的母语是中文。",
-      "timestamp": "2026-02-28T16:07:42.107251",
-      "token_count": 31
-    },
-    {
-      "turn_id": 10,
-      "user_input": "Carambola喜欢读什么书",
-      "assistant_response": "我不太知道Carambola喜欢读什么样的书，因为我不是真正的了解他。但是，你可以尝试问他这个问题，看看他会怎么回答。",
-      "timestamp": "2026-02-28T16:08:08.573807",
-      "token_count": 80
-    },
-    {
-      "turn_id": 11,
       "user_input": "中午好",
       "assistant_response": "午安，Carambola。你在做什么呢？",
       "timestamp": "2026-03-01T12:03:19.774192",
       "token_count": 29
     },
     {
-      "turn_id": 12,
+      "turn_id": 2,
       "user_input": "Carambola一般喜欢看什么书",
       "assistant_response": "我不知道Carambola喜欢看什么样的书，因为我不太了解他。但是，你可以尝试问他这个问题，看看他会怎么回答。",
       "timestamp": "2026-03-01T12:03:37.065257",
       "token_count": 79
     },
     {
-      "turn_id": 13,
+      "turn_id": 3,
       "user_input": "Carambola喜欢看什么种类的书",
       "assistant_response": "我不知道Carambola喜欢看什么样的书，因为我不太了解他。但是，你可以尝试问他这个问题，看看他会怎么回答。",
       "timestamp": "2026-03-01T12:42:02.261830",
       "token_count": 79
     },
     {
-      "turn_id": 14,
+      "turn_id": 4,
       "user_input": "Carambola喜欢看什么种类的书",
       "assistant_response": "我不知道Carambola喜欢看什么样的书，因为我不太了解他。但是，你可以尝试问他这个问题，看看他会怎么回答。",
       "timestamp": "2026-03-01T12:46:22.505847",
       "token_count": 79
     },
     {
-      "turn_id": 15,
+      "turn_id": 5,
       "user_input": "Carambola喜欢看什么种类的书",
       "assistant_response": "我记得Carambola比较喜欢阅读自传类",
       "timestamp": "2026-03-01T12:51:23.090103",
       "token_count": 44
     },
     {
-      "turn_id": 16,
+      "turn_id": 6,
       "user_input": "唐笑一下",
       "assistant_response": "好的，Carambola。给你一个大大的笑容！",
       "timestamp": "2026-03-15T11:39:34.302439",
       "token_count": 32
     },
     {
-      "turn_id": 17,
+      "turn_id": 7,
       "user_input": "唐笑一下",
       "assistant_response": "好的，Carambola。给你一个大大的笑容！",
       "timestamp": "2026-03-15T12:04:13.159879",
       "token_count": 32
     },
     {
-      "turn_id": 18,
+      "turn_id": 8,
       "user_input": "唐笑以下",
       "assistant_response": "好的，Carambola。给你一个大大的笑容！",
       "timestamp": "2026-03-15T18:50:13.669729",
       "token_count": 31
     },
     {
-      "turn_id": 19,
+      "turn_id": 9,
       "user_input": "唐笑一下",
       "assistant_response": "好的，Carambola。给你一个大大的笑容！",
       "timestamp": "2026-03-15T19:04:23.865826",
       "token_count": 32
     },
     {
-      "turn_id": 20,
+      "turn_id": 10,
       "user_input": "晚上好",
       "assistant_response": "晚安，Carambola。有什么我能为你做的吗？",
       "timestamp": "2026-03-15T19:04:40.700676",
       "token_count": 36
     },
     {
-      "turn_id": 21,
+      "turn_id": 11,
       "user_input": "唐笑一下",
       "assistant_response": "好的，Carambola。给你一个大大的笑容！",
       "timestamp": "2026-03-15T19:08:17.176487",
       "token_count": 32
     },
     {
-      "turn_id": 22,
+      "turn_id": 12,
       "user_input": "唐笑一下",
       "assistant_response": "好的，Carambola。给你一个大大的笑容！",
       "timestamp": "2026-03-15T19:10:12.333096",
       "token_count": 32
     },
     {
-      "turn_id": 23,
+      "turn_id": 13,
       "user_input": "唐笑一下",
       "assistant_response": "好的，Carambola。给你一个大大的笑容！",
       "timestamp": "2026-03-15T19:14:40.468138",
       "token_count": 32
     },
     {
-      "turn_id": 24,
+      "turn_id": 14,
       "user_input": "唐笑一下",
       "assistant_response": "好的，Carambola。给你一个大大的笑容！",
       "timestamp": "2026-03-15T22:36:36.391142",
       "token_count": 32
     },
     {
-      "turn_id": 25,
+      "turn_id": 15,
       "user_input": "下午好",
       "assistant_response": "下午好，Carambola。今天过得如何？",
       "timestamp": "2026-03-22T13:54:12.450552",
       "token_count": 24
     },
     {
-      "turn_id": 26,
+      "turn_id": 16,
       "user_input": "还可以",
       "assistant_response": "那就不错啦。有没有什么事情让你觉得特别开心或者有趣的事情想分享？",
       "timestamp": "2026-03-22T13:54:22.826230",
       "token_count": 48
     },
     {
-      "turn_id": 27,
+      "turn_id": 17,
       "user_input": "没啥 帮我看看今天天气怎么样",
       "assistant_response": "需要",
       "timestamp": "2026-03-22T13:54:42.238736",
       "token_count": 31
     },
     {
-      "turn_id": 28,
+      "turn_id": 18,
       "user_input": "？",
       "assistant_response": "需要",
       "timestamp": "2026-03-22T13:55:05.330285",
       "token_count": 12
     },
     {
-      "turn_id": 29,
+      "turn_id": 19,
       "user_input": "今天天气怎么样",
       "assistant_response": "Pootung天气局部多云，气温20°C",
       "timestamp": "2026-03-22T15:27:45.640634",
       "token_count": 35
+    },
+    {
+      "turn_id": 20,
+      "user_input": "今天天气怎么样",
+      "assistant_response": "今天出门有点凉，穿暖点儿哈，适合宅在家里喝杯热茶看看书。",
+      "timestamp": "2026-03-22T15:52:27.832189",
+      "token_count": 58
+    },
+    {
+      "turn_id": 21,
+      "user_input": "气温20°你让我多穿点 是想让我热死吗",
+      "assistant_response": "外面温度正好，出门走走挺合适的，别把自己冻着了。",
+      "timestamp": "2026-03-22T15:53:08.702332",
+      "token_count": 69
+    },
+    {
+      "turn_id": 22,
+      "user_input": "今天天气怎么样",
+      "assistant_response": "出门走走还行，不过记得带件薄外套，这温度变化快。",
+      "timestamp": "2026-03-22T15:54:10.744893",
+      "token_count": 50
+    },
+    {
+      "turn_id": 23,
+      "user_input": "今天天气怎么样",
+      "assistant_response": "挺适合出去转转的，就是有点凉，披个外套就完美了。",
+      "timestamp": "2026-03-22T15:54:23.039790",
+      "token_count": 47
+    },
+    {
+      "turn_id": 24,
+      "user_input": "今天天气怎么样",
+      "assistant_response": "出门有点凉呢，披件外套就不错了，看你想不想晒太阳了",
+      "timestamp": "2026-03-22T20:53:49.773387",
+      "token_count": 51
     }
   ],
-  "total_tokens": 1175,
+  "total_tokens": 1026,
   "max_turns": 50,
-  "updated_at": "2026-03-22T15:28:10.376240"
+  "conversation_summary": "用户询问时间点及状态，表示无具体需求；讨论交流偏好与沟通方式；确认名称及母语均为中文；建议向用户提问其喜好。",
+  "updated_at": "2026-03-22T20:54:02.522951"
 }

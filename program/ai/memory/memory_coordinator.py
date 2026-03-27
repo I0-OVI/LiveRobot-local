@@ -45,6 +45,10 @@ class MemoryCoordinator:
         rag_use_llm_long_term_eval: bool = False,
         rag_save_llm_timeout_sec: Optional[float] = None,
         rag_use_save_worker: bool = True,
+        replay_conversation_summary_enabled: bool = True,
+        replay_summary_max_output_tokens: int = 150,
+        replay_summary_llm_max_new_tokens: int = 256,
+        also_persist_summary_to_rag: bool = False,
     ):
         """
         Initialize memory coordinator
@@ -76,6 +80,10 @@ class MemoryCoordinator:
             rag_save_llm_timeout_sec: Max seconds for save-side LLM (combined eval or importance-only). None = no limit.
                 If <= 0 while long_term_eval is True, combined eval is skipped (legacy importance LLM only, if enabled).
             rag_use_save_worker: If True, enqueue RAG saves to a single daemon worker instead of spawning a thread per turn.
+            replay_conversation_summary_enabled: If True, periodically merge oldest replay turns into a rolling summary (shortens Qwen context).
+            replay_summary_max_output_tokens: Hard cap on stored summary length (after LLM).
+            replay_summary_llm_max_new_tokens: Generation budget for the summarization chat() call.
+            also_persist_summary_to_rag: If True, also write each new rolling summary to long-term RAG (same text).
         """
         # Initialize Replay system
         self.replay = ReplayMemory(
@@ -101,10 +109,12 @@ class MemoryCoordinator:
             user_name=rag_user_name
         )
         
-        # Initialize summarizer
+        # Initialize summarizer (rolling replay compaction)
         self.summarizer = MemorySummarizer(
             summary_interval=rag_summary_interval,
-            text_generator=text_generator
+            text_generator=text_generator,
+            max_output_tokens=replay_summary_max_output_tokens,
+            llm_max_new_tokens=replay_summary_llm_max_new_tokens,
         )
         
         # Initialize importance calculator
@@ -130,6 +140,8 @@ class MemoryCoordinator:
         self.rag_use_llm_long_term_eval = bool(rag_use_llm_long_term_eval)
         self.rag_save_llm_timeout_sec = rag_save_llm_timeout_sec
         self.rag_use_save_worker = bool(rag_use_save_worker)
+        self.replay_conversation_summary_enabled = bool(replay_conversation_summary_enabled)
+        self.also_persist_summary_to_rag = bool(also_persist_summary_to_rag)
 
         self._save_job_queue: queue.Queue = queue.Queue()
         self._save_worker_thread: Optional[threading.Thread] = None
@@ -263,6 +275,13 @@ class MemoryCoordinator:
         """
         # Always save to Replay immediately (short-term memory, fast operation)
         self.replay.add_turn(user_input, assistant_response)
+
+        try:
+            self._maybe_compact_replay_with_summary()
+        except Exception as e:
+            print(f"[MemoryCoordinator] Replay rolling summary skipped: {e}")
+            import traceback
+            traceback.print_exc()
         
         if async_save:
             job = {
@@ -487,37 +506,38 @@ class MemoryCoordinator:
                     )
                 except Exception as e:
                     print(f"[MemoryCoordinator] Periodic merge failed: {e}")
-        
-        # Check if summary should be generated
-        if self.summarizer.should_generate_summary():
-            self._generate_and_save_summary()
-    
-    def _generate_and_save_summary(self):
-        """Generate summary from recent Replay turns and save to RAG"""
-        try:
-            # Get recent turns for summary (last N turns, where N = summary_interval)
-            recent_turns = self.replay.get_replay_history_with_metadata(
-                token_budget=self.replay.token_budget  # Get all recent turns
-            )
-            
-            # Limit to summary_interval number of turns
-            interval = self.summarizer.summary_interval
-            recent_turns = recent_turns[-interval:] if len(recent_turns) > interval else recent_turns
-            
-            if not recent_turns:
-                return
-            
-            # Generate summary
-            summary = self.summarizer.generate_summary_from_turns(recent_turns)
-            
-            if summary:
-                # Save summary to RAG with higher importance
-                self.rag.save_summary(summary, importance=0.8)
-                print(f"[MemoryCoordinator] Generated and saved summary: {summary[:50]}...")
-        except Exception as e:
-            print(f"[MemoryCoordinator] Error generating summary: {e}")
-            import traceback
-            traceback.print_exc()
+
+    def _maybe_compact_replay_with_summary(self) -> None:
+        """
+        When replay has more than summary_interval turns, summarize the oldest N turns,
+        remove them from replay, and store a rolling conversation_summary (prepended in get_replay_history).
+        Runs synchronously after each add_turn so the next user message sees compressed context.
+        """
+        if not self.replay_conversation_summary_enabled:
+            return
+        n = self.summarizer.summary_interval
+        if self.replay.get_turn_count() <= n:
+            return
+        if not self.text_generator or getattr(self.text_generator, "model", None) is None:
+            return
+
+        batch = list(self.replay.turns[:n])
+        prev = self.replay.get_conversation_summary()
+        new_summary = self.summarizer.rolling_merge(prev, batch)
+        if not new_summary:
+            return
+
+        self.replay.pop_turns_from_start(n)
+        self.replay.set_conversation_summary(new_summary)
+        print(
+            f"[MemoryCoordinator] Rolling replay summary updated "
+            f"(removed {n} turns, summary_len={len(new_summary)})"
+        )
+        if self.also_persist_summary_to_rag:
+            try:
+                self.rag.save_summary(new_summary, importance=0.8)
+            except Exception as e:
+                print(f"[MemoryCoordinator] RAG save_summary failed: {e}")
     
     def should_use_rag(self) -> bool:
         """
