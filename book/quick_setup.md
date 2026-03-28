@@ -33,15 +33,16 @@ pip install live2d-py
 
 #### Qwen Model
 
-The default model is downloaded from Hugging Face on first run (unless already cached). Hub weights are **not** pre-quantized; with a GPU the app loads them in **4-bit** using bitsandbytes.
+The default model is downloaded from Hugging Face on first run (unless already cached). For **`qwen3.5-4b`**, the Hub checkpoint is **already** bitsandbytes 4-bit. For **7B / 9B** presets, Hub weights are full precision; with a GPU the app loads them in **4-bit** using bitsandbytes at load time.
 
-**Choose at startup:** A **PyQt dialog** opens by default to pick the model. To skip it: `python main.py --llm qwen2.5-7b` or `--llm qwen3.5-9b-text`, or set env `LIVEBOT_LLM` to one of those ids. Use `--llm gui` to force the dialog. Headless / no PyQt: `--llm ask` (terminal) or an explicit `--llm` preset. In code: `AIAgent(llm_preset="qwen2.5-7b")` or `llm_preset="qwen3.5-9b-text"`.
+**Choose at startup:** A **PyQt dialog** opens by default to pick the model. To skip it: `python main.py --llm qwen3.5-4b` / `qwen2.5-7b` / `qwen3.5-9b-text`, or set env `LIVEBOT_LLM` to one of those ids. Use `--llm gui` to force the dialog. Headless / no PyQt: `--llm ask` (terminal) or an explicit `--llm` preset. In code: `AIAgent(llm_preset="qwen3.5-4b")`, etc.
 
 **Presets:**
 
 | Preset | Hub repo | Local cache folder |
 |--------|----------|------------------------|
-| `qwen2.5-7b` (default) | [`Qwen/Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct) | `program/utils/models/qwen2.5-7b-instruct` |
+| `qwen3.5-4b` | [`techwithsergiu/Qwen3.5-4B-bnb-4bit`](https://huggingface.co/techwithsergiu/Qwen3.5-4B-bnb-4bit) (pre-quantized) | `program/utils/models/qwen3.5-4b-bnb-4bit` |
+| `qwen2.5-7b` (API default) | [`Qwen/Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct) | `program/utils/models/qwen2.5-7b-instruct` |
 | `qwen3.5-9b-text` | [`principled-intelligence/Qwen3.5-9B-text-only`](https://huggingface.co/principled-intelligence/Qwen3.5-9B-text-only) | `program/utils/models/qwen3.5-9b-text-only` |
 
 **Requirements:** `transformers>=5.2.0` for Qwen3.5 text-only; chat uses `chat_template` + `generate`.

@@ -237,6 +237,7 @@ class QwenTextGenerator:
         model_name: str = "Qwen/Qwen2.5-7B-Instruct",
         cache_dir: Optional[str] = None,
         trust_remote_code: bool = False,
+        hub_pre_quantized: bool = False,
     ):
         """
         Initialize Qwen text generator
@@ -245,10 +246,12 @@ class QwenTextGenerator:
             model_name: HuggingFace model name, default "Qwen/Qwen2.5-7B-Instruct"
             cache_dir: Model cache directory, if None uses default HuggingFace cache
             trust_remote_code: Passed to from_pretrained (some checkpoints need True)
+            hub_pre_quantized: Hub repo ships bitsandbytes 4-bit weights; load without BitsAndBytesConfig.
         """
         self.model_name = model_name
         self.cache_dir = cache_dir
         self.trust_remote_code = trust_remote_code
+        self.hub_pre_quantized = hub_pre_quantized
         self.model = None
         self.tokenizer = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -293,6 +296,32 @@ class QwenTextGenerator:
         force_split = os.environ.get("LIVEBOT_LLM_SPLIT", "").strip().lower() in ("1", "true", "yes")
         offload_dir = os.path.join(self.cache_dir or ".", "_hf_offload")
         os.makedirs(offload_dir, exist_ok=True)
+
+        if self.hub_pre_quantized:
+            if not force_split and torch.cuda.is_available():
+                try:
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        self.model_name,
+                        device_map={"": 0},
+                        **base_kw,
+                    )
+                    return
+                except Exception as e:
+                    oom = isinstance(e, torch.cuda.OutOfMemoryError) or "out of memory" in str(e).lower()
+                    if not oom:
+                        raise
+                    torch.cuda.empty_cache()
+                    print(
+                        "[Init] Pre-quantized 4-bit model did not fit in GPU memory; retrying with auto device_map + offload "
+                        f"(offload dir: {offload_dir})"
+                    )
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                device_map="auto",
+                offload_folder=offload_dir,
+                **base_kw,
+            )
+            return
 
         if not force_split and torch.cuda.is_available():
             try:
@@ -701,6 +730,8 @@ class QwenTextGenerator:
             self._reset_forbidden_token_cache()
 
             if self.use_quantization:
+                if self.hub_pre_quantized:
+                    print("[Init] LLM weights: Hub pre-quantized bnb 4-bit (checkpoint is already quantized)")
                 self._load_quantized_model(use_local_only)
             else:
                 self.model = AutoModelForCausalLM.from_pretrained(

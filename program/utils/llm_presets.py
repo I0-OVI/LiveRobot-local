@@ -5,6 +5,14 @@ from typing import Any, Dict, Optional, Tuple
 
 # Preset id -> hub model name, cache subdir under program/utils/models/<subdir>, trust_remote_code for from_pretrained
 LLM_PRESETS: Dict[str, Dict[str, Any]] = {
+    "qwen3.5-4b": {
+        "label": "Qwen3.5-4B bitsandbytes 4-bit (pre-quantized on Hub, ~4B)",
+        # Pre-quantized checkpoint: download is already 4-bit; do not re-quantize at load time.
+        "model_name": "techwithsergiu/Qwen3.5-4B-bnb-4bit",
+        "cache_subdir": "qwen3.5-4b-bnb-4bit",
+        "trust_remote_code": True,
+        "hub_pre_quantized": True,
+    },
     "qwen2.5-7b": {
         "label": "Qwen2.5-7B-Instruct (4-bit, ~7B)",
         "model_name": "Qwen/Qwen2.5-7B-Instruct",
