@@ -12,7 +12,7 @@ If you want to quickly try it out, just clone this repository, install the depen
 |Streaming text generation                      | ✅  |
 |Personality Setting (System and Dynamic prompt)| ✅  |
 |Anon's Laughing and Crying                     | ✅  |
-|Tools like weather searching                   | 🚧  |
+|Tools like weather searching                   | ✅  |
 |Short-term Memory (Replay)                     | 🚧  | 
 |Long-term Memory (RAG)                         | 🚧  | 
 |Emotion system                                 | 🚧  |
