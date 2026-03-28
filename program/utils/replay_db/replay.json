@@ -6,10 +6,17 @@
       "assistant_response": "未找到 Steam（常见路径未检测到）。可在 program/open_app_allowlist.txt 中添加：steam=C:\\你的路径\\steam.exe",
       "timestamp": "2026-03-28T16:22:27.687414",
       "token_count": 49
+    },
+    {
+      "turn_id": 2,
+      "user_input": "晚上好",
+      "assistant_response": "哼，终于舍得上线了？别以为随便发个“晚上好”就能让我心情变好。不过既然都来了，就乖乖去把窗帘拉上吧，外面这夜色可不像白天那么热情。",
+      "timestamp": "2026-03-28T22:59:35.283261",
+      "token_count": 97
     }
   ],
-  "total_tokens": 49,
+  "total_tokens": 146,
   "max_turns": 50,
   "conversation_summary": "连续多次询问天气，Rubus反复强调需备外套防凉，并调侃用户想晒太阳又怕黑。虽已开窗，仍催促拉帘纳凉。最后请求启动 Steam，被嫌弃浪费精力但同意操作，警告勿熬夜留烂摊子。",
-  "updated_at": "2026-03-28T16:22:40.120999"
+  "updated_at": "2026-03-28T23:00:35.464704"
 }

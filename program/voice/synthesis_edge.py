@@ -107,16 +107,40 @@ class EdgeVoiceSynthesis:
         if len(self.pending_audio) == 0 and not self.is_playing:
             self._start_synthesis_if_needed()
     
+    def _flush_sentence_chunks_from_buffer(self):
+        """将缓冲区中已完整的句子（以句末标点结尾）逐条送入 TTS，保留未完结的尾部。"""
+        sentence_endings = frozenset("。！？.!?\n")
+        buf = self.streaming_buffer
+        if not buf:
+            return
+        
+        current = []
+        for c in buf:
+            current.append(c)
+            if c in sentence_endings:
+                chunk = "".join(current).strip()
+                if chunk:
+                    self.synthesize_and_play(chunk)
+                current = []
+        self.streaming_buffer = "".join(current)
+    
     def synthesize_and_play_streaming(self, text: str, is_final: bool = False):
         """
         Stream synthesis and play (async)
-        Only triggers synthesis when encountering complete sentences
+        一旦出现完整句子（含句号等句末标点）即送入 TTS，避免整段过长才合成。
         
         Args:
             text: Current accumulated text (full text, not incremental)
             is_final: Whether it's the final text (streaming ended)
         """
         if not text or len(text.strip()) == 0:
+            if is_final:
+                with self.streaming_lock:
+                    remainder = self.streaming_buffer.strip()
+                    self.streaming_buffer = ""
+                    self.last_synthesized_length = 0
+                    if remainder:
+                        self.synthesize_and_play(remainder)
             return
         
         with self.streaming_lock:
@@ -126,36 +150,14 @@ class EdgeVoiceSynthesis:
                 self.streaming_buffer += new_text
                 self.last_synthesized_length = len(text)
             
-            if is_final and self.streaming_buffer:
-                buffer_to_synthesize = self.streaming_buffer
+            self._flush_sentence_chunks_from_buffer()
+            
+            if is_final:
+                remainder = self.streaming_buffer.strip()
                 self.streaming_buffer = ""
                 self.last_synthesized_length = 0
-                
-                if buffer_to_synthesize.strip():
-                    self.synthesize_and_play(buffer_to_synthesize)
-            elif self.streaming_buffer:
-                sentence_endings = ['。', '！', '？', '.', '!', '?', '\n']
-                last_char = self.streaming_buffer[-1] if self.streaming_buffer else ''
-                
-                if last_char in sentence_endings:
-                    sentences = []
-                    current_sentence = ""
-                    
-                    for char in self.streaming_buffer:
-                        current_sentence += char
-                        if char in sentence_endings:
-                            sentences.append(current_sentence.strip())
-                            current_sentence = ""
-                    
-                    if sentences:
-                        for sentence in sentences:
-                            if sentence:
-                                self.synthesize_and_play(sentence)
-                        
-                        if current_sentence:
-                            self.streaming_buffer = current_sentence
-                        else:
-                            self.streaming_buffer = ""
+                if remainder:
+                    self.synthesize_and_play(remainder)
     
     def reset_streaming_buffer(self):
         """Reset streaming buffer"""

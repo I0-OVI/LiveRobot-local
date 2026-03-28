@@ -130,6 +130,10 @@ class FishSpeechVoiceSynthesis:
         self.running = True
         self.playback_thread = None
         
+        self.streaming_buffer = ""
+        self.last_synthesized_length = 0
+        self.streaming_lock = threading.Lock()
+        
         self.playback_thread = threading.Thread(target=self._playback_loop, daemon=True)
         self.playback_thread.start()
     
@@ -185,20 +189,63 @@ class FishSpeechVoiceSynthesis:
         
         self.playback_queue.put(("synthesize_and_play", text))
     
+    def _flush_sentence_chunks_from_buffer(self):
+        """将缓冲区中已完整的句子（以句末标点结尾）逐条送入 TTS，保留未完结的尾部。"""
+        sentence_endings = frozenset("。！？.!?\n")
+        buf = self.streaming_buffer
+        if not buf:
+            return
+        
+        current = []
+        for c in buf:
+            current.append(c)
+            if c in sentence_endings:
+                chunk = "".join(current).strip()
+                if chunk:
+                    self.synthesize_and_play(chunk)
+                current = []
+        self.streaming_buffer = "".join(current)
+    
     def synthesize_and_play_streaming(self, text: str, is_final: bool = False):
         """
         Stream synthesis and play (async)
+        一旦出现完整句子（含句号等句末标点）即送入 TTS，避免整段过长才合成。
         
         Args:
             text: Current accumulated text
             is_final: Whether it's the final text
         """
-        if is_final and text:
-            self.synthesize_and_play(text)
+        if not text or len(text.strip()) == 0:
+            if is_final:
+                with self.streaming_lock:
+                    remainder = self.streaming_buffer.strip()
+                    self.streaming_buffer = ""
+                    self.last_synthesized_length = 0
+                    if remainder:
+                        self.synthesize_and_play(remainder)
+            return
+        
+        with self.streaming_lock:
+            new_text = text[self.last_synthesized_length:]
+            
+            if new_text:
+                self.streaming_buffer += new_text
+                self.last_synthesized_length = len(text)
+            
+            self._flush_sentence_chunks_from_buffer()
+            
+            if is_final:
+                remainder = self.streaming_buffer.strip()
+                self.streaming_buffer = ""
+                self.last_synthesized_length = 0
+                if remainder:
+                    self.synthesize_and_play(remainder)
     
     def reset_streaming_buffer(self):
         """Reset streaming buffer"""
-        pass
+        with self.streaming_lock:
+            self.streaming_buffer = ""
+            self.last_synthesized_length = 0
     
     def _playback_loop(self):
         """Playback loop"""
