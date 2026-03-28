@@ -31,7 +31,7 @@ Anon is Anon Chihaya. Anon Chihaya is a fictional character from the anime BanG 
 
 
 ## Limitations
-This subject is supported by open weights model. Even if we implement different prompt and add the memory, the answer is still stiff meaning differ from the normal speech. Perhaps the better model or having training could relieve this.
+The chat stack uses open-weight Qwen models (e.g. Qwen3.5 variants selectable at startup); quality is already strong for dialogue and persona-style replies. What remains is mostly **pipeline and product** limits: speech in/out adds latency and recognition errors, long-term memory and RAG are still being refined, and a dedicated character fine-tune or a larger cloud model could push nuance further if you need it.
 
 ## Acknowledgements
 
