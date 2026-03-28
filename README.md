@@ -48,7 +48,7 @@ This project makes use of the following open-source projects and resources:
 - Live2D Cubism SDK (Official SDK)  
   https://www.live2d.com  
 
-- Chat LLM: on startup a **GUI dialog** lets you pick **Qwen3.5-4B (Hub pre-quantized bnb 4-bit)**, **Qwen2.5-7B-Instruct**, or **Qwen3.5-9B text-only** ([`techwithsergiu/Qwen3.5-4B-bnb-4bit`](https://huggingface.co/techwithsergiu/Qwen3.5-4B-bnb-4bit), [`principled-intelligence/Qwen3.5-9B-text-only`](https://huggingface.co/principled-intelligence/Qwen3.5-9B-text-only)); 7B/9B presets download FP16/BF16 from the Hub and load in **4-bit** via bitsandbytes when CUDA is available; the 4B preset downloads **already 4-bit** weights. Skip the dialog with `python main.py --llm qwen3.5-4b` / `qwen2.5-7b` / `qwen3.5-9b-text`, or set env `LIVEBOT_LLM` to one of those ids. Force the dialog with `--llm gui`.  
+- Chat LLM: on startup a **GUI dialog** lets you pick **Qwen3.5-4B**, **Qwen2.5-7B-Instruct**, or **Qwen3.5-9B text-only** ([`Qwen/Qwen3.5-4B`](https://huggingface.co/Qwen/Qwen3.5-4B), [`principled-intelligence/Qwen3.5-9B-text-only`](https://huggingface.co/principled-intelligence/Qwen3.5-9B-text-only)); Hub ships full-precision weights; with CUDA the app loads them in **4-bit** via bitsandbytes (smaller VRAM than FP16/BF16). Skip the dialog with `python main.py --llm qwen3.5-4b` / `qwen2.5-7b` / `qwen3.5-9b-text`, or set env `LIVEBOT_LLM` to one of those ids. Force the dialog with `--llm gui`.  
   https://huggingface.co/Qwen  
 
 Thanks to the authors and communities for their excellent work.

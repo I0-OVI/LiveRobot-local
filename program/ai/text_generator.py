@@ -490,13 +490,36 @@ class QwenTextGenerator:
 
     @staticmethod
     def _snapshot_has_model_weights(snapshot_dir: str) -> bool:
+        """True if weight files exist; for sharded models, every shard listed in the index must be on disk."""
         if not os.path.isdir(snapshot_dir):
             return False
+        single = os.path.join(snapshot_dir, "model.safetensors")
+        if os.path.isfile(single):
+            return True
+        if os.path.isfile(os.path.join(snapshot_dir, "pytorch_model.bin")):
+            return True
+        idx_path = os.path.join(snapshot_dir, "model.safetensors.index.json")
+        if os.path.isfile(idx_path):
+            try:
+                with open(idx_path, "r", encoding="utf-8") as f:
+                    idx = json.load(f)
+            except Exception:
+                return False
+            files = set()
+            wm = idx.get("weight_map")
+            if isinstance(wm, dict):
+                for v in wm.values():
+                    if isinstance(v, str):
+                        files.add(v)
+            if not files:
+                return False
+            for fn in files:
+                if not os.path.isfile(os.path.join(snapshot_dir, fn)):
+                    return False
+            return True
         for name in os.listdir(snapshot_dir):
             lower = name.lower()
             if lower.endswith(".safetensors") or lower == "pytorch_model.bin":
-                return True
-            if lower == "model.safetensors.index.json":
                 return True
         return False
 
@@ -725,14 +748,14 @@ class QwenTextGenerator:
         prev_hub_offline = os.environ.get("HF_HUB_OFFLINE")
         if use_local_only:
             os.environ["HF_HUB_OFFLINE"] = "1"
-        try:
-            self.tokenizer = self._load_tokenizer(use_local_only)
-            self._reset_forbidden_token_cache()
 
+        def _do_load(local_only: bool) -> None:
+            self.tokenizer = self._load_tokenizer(local_only)
+            self._reset_forbidden_token_cache()
             if self.use_quantization:
                 if self.hub_pre_quantized:
                     print("[Init] LLM weights: Hub pre-quantized bnb 4-bit (checkpoint is already quantized)")
-                self._load_quantized_model(use_local_only)
+                self._load_quantized_model(local_only)
             else:
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_name,
@@ -740,8 +763,28 @@ class QwenTextGenerator:
                     device_map="auto",
                     trust_remote_code=self.trust_remote_code,
                     torch_dtype=torch.float32,
-                    local_files_only=use_local_only,
+                    local_files_only=local_only,
                 )
+
+        try:
+            try:
+                _do_load(use_local_only)
+            except (OSError, RuntimeError) as e:
+                # Incomplete cache (e.g. only shard 1 of 2): retry online once.
+                err = str(e).lower()
+                if use_local_only and (
+                    "does not appear to have" in err
+                    or "localentrynotfound" in err.replace(" ", "")
+                    or "could not find" in err
+                ):
+                    print("[Init] Local cache incomplete or missing shards; fetching from Hugging Face...")
+                    if prev_hub_offline is None:
+                        os.environ.pop("HF_HUB_OFFLINE", None)
+                    else:
+                        os.environ["HF_HUB_OFFLINE"] = prev_hub_offline
+                    _do_load(False)
+                else:
+                    raise
 
             if self.model is not None:
                 self._fix_stream_generator_compatibility()

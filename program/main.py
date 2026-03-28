@@ -1987,7 +1987,7 @@ def _choose_llm_preset_dialog() -> str:
     )
 
     rb_4b = QRadioButton(
-        "Qwen3.5-4B（Hub 预量化 bnb 4bit 权重下载，约 4B 参数，8GB 显卡推荐）\n"
+        "Qwen3.5-4B（约 4B，加载时 4bit 量化，8GB 显卡推荐）\n"
         f"    {LLM_PRESETS['qwen3.5-4b']['label']}"
     )
     rb_light = QRadioButton(
