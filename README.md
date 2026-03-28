@@ -16,7 +16,8 @@ If you want to quickly try it out, just clone this repository, install the depen
 |Short-term Memory (Replay)                     | 🚧  | 
 |Long-term Memory (RAG)                         | 🚧  | 
 |Emotion system                                 | 🚧  |
-|Interaction of mouse or user's action          | 🚧  |
+|Interaction of mouse                           | ✅  |
+|Open Certain Program                           | 🚧  |
 
 Notes
 - ✅ means a feature that is currently available and working properly.
