@@ -5,8 +5,8 @@ Uses Live2D models instead of static image rendering
 import os
 import sys
 from PyQt5.QtWidgets import QOpenGLWidget
-from PyQt5.QtCore import Qt, QTimerEvent, QRect
-from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QBrush, QFontMetrics, QPixmap
+from PyQt5.QtCore import Qt, QTimer, QTimerEvent, QRect
+from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QBrush, QFontMetrics, QPixmap, QCursor
 
 from utils.path_config import get_model_paths
 from core.behavior import State
@@ -140,6 +140,12 @@ class Live2DWidget(QOpenGLWidget):
         self.drag_position = None
         
         self.startTimer(int(1000 / 60))
+        
+        # Global cursor → model Drag (eyes/head follow mouse anywhere on screen)
+        self._cursor_track_timer = QTimer(self)
+        self._cursor_track_timer.setInterval(16)
+        self._cursor_track_timer.timeout.connect(self._update_drag_from_global_cursor)
+        self._cursor_track_timer.start()
     
     def _set_initial_position(self):
         """Set initial window position (top right corner)"""
@@ -150,6 +156,18 @@ class Live2DWidget(QOpenGLWidget):
             x = screen.width() - self.width() - 20
             y = 20
             self.move(x, y)
+    
+    def _update_drag_from_global_cursor(self):
+        """Map screen cursor to widget coords and drive Live2D Drag (gaze follows mouse globally)."""
+        if not self.model or not self.live2d_initialized:
+            return
+        if not self.isVisible():
+            return
+        try:
+            lp = self.mapFromGlobal(QCursor.pos())
+            self.model.Drag(lp.x(), lp.y())
+        except Exception:
+            pass
     
     def initializeGL(self):
         """Initialize OpenGL context"""
@@ -489,14 +507,12 @@ class Live2DWidget(QOpenGLWidget):
             event.accept()
     
     def mouseMoveEvent(self, event):
-        """Mouse move event (dragging window and gaze tracking)"""
+        """Mouse move event (window drag only; gaze uses global cursor timer)."""
         if self.dragging and event.buttons() == Qt.LeftButton:
             self.move(event.globalPos() - self.drag_position)
             event.accept()
-        elif self.model:
-            x = event.pos().x()
-            y = event.pos().y()
-            self.model.Drag(x, y)
+        else:
+            super().mouseMoveEvent(event)
     
     def mouseReleaseEvent(self, event):
         """Mouse release event"""
@@ -506,6 +522,8 @@ class Live2DWidget(QOpenGLWidget):
     
     def closeEvent(self, event):
         """Window close event"""
+        if self._cursor_track_timer is not None:
+            self._cursor_track_timer.stop()
         if self.live2d_initialized and LIVE2D_AVAILABLE:
             try:
                 live2d.dispose()
