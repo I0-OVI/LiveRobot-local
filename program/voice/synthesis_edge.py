@@ -71,7 +71,10 @@ class EdgeVoiceSynthesis:
         self.streaming_lock = threading.Lock()
         
         self.synthesis_thread_pool = []
-        self.max_synthesis_threads = 2
+        # 略提高并发，让多句排队时更早把后续句合成完，减小句间等待（若遇限流可改回 2）
+        self.max_synthesis_threads = 3
+        # 已合成、待播放的段数上限：多缓冲几句，减少播完上一句时下一句还没合成好的空隙
+        self.prefetch_pending_target = 4
         self.synthesis_lock = threading.Lock()
         
         self.playback_thread = threading.Thread(target=self._playback_loop, daemon=True)
@@ -103,9 +106,9 @@ class EdgeVoiceSynthesis:
             self.sequence_counter += 1
         
         self.playback_queue.put(("synthesize_and_play", text, sequence))
-        
-        if len(self.pending_audio) == 0 and not self.is_playing:
-            self._start_synthesis_if_needed()
+        # 始终尝试拉队列启动合成：若仅在「无 pending 且未播放」时才启动，
+        # 正在播第一句时新入队的第二句会拖到 prefetch 周期才开工，句间空隙变大。
+        self._start_synthesis_if_needed()
     
     def _flush_sentence_chunks_from_buffer(self):
         """将缓冲区中已完整的句子（以句末标点结尾）逐条送入 TTS，保留未完结的尾部。"""
@@ -223,6 +226,9 @@ class EdgeVoiceSynthesis:
                 self.pending_audio[sequence] = (audio_data, file_path, text, sequence)
                 print(f"[Edge TTS Synthesis Thread] Audio stored (sequence: {sequence}), pending: {len(self.pending_audio)}, next play sequence: {self.next_play_sequence}")
             
+            # 本段合成完立刻尝试从队列再开工人，不必等 prefetch/playback 周期
+            self._start_synthesis_if_needed()
+            
         except Exception as e:
             print(f"[Edge TTS Synthesis Thread] Synthesis failed (sequence: {sequence}): {e}")
             import traceback
@@ -271,10 +277,10 @@ class EdgeVoiceSynthesis:
                 # If pending audio is less than 2 and text queue has tasks, start prefetch
                 with self.sequence_lock:
                     pending_count = len(self.pending_audio)
-                if pending_count < 2 and not self.playback_queue.empty():
+                if pending_count < self.prefetch_pending_target and not self.playback_queue.empty():
                     self._start_synthesis_if_needed()
                 
-                time.sleep(0.1)  # Check every 0.1 seconds
+                time.sleep(0.03)  # 略加快轮询，避免新任务入队后多等一拍
             except Exception as e:
                 print(f"[Edge TTS Prefetch Thread] Error: {e}")
                 import traceback
@@ -309,8 +315,8 @@ class EdgeVoiceSynthesis:
                     # After playback, trigger prefetch next (if there are tasks in text queue)
                     self._start_synthesis_if_needed()
                     
-                    # Short delay so subtitle (output_loop) can update before next sentence plays; keeps subtitle in sync
-                    time.sleep(0.03)
+                    # 极短停顿给字幕线程一帧机会；过长会拉长句间听感空隙
+                    time.sleep(0.012)
                     
                     # Delete temp file in background
                     threading.Thread(
@@ -319,8 +325,8 @@ class EdgeVoiceSynthesis:
                         daemon=True
                     ).start()
                 else:
-                    # No audio to play, wait a bit
-                    time.sleep(0.05)
+                    # 下一段尚未合成好：稍快轮询，减少「已播完但音频刚到」的额外延迟
+                    time.sleep(0.02)
                     # Check if there are tasks in text queue that need synthesis
                     if not self.playback_queue.empty():
                         self._start_synthesis_if_needed()
