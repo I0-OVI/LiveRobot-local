@@ -1,4 +1,13 @@
-# 可选：自定义「打开程序」白名单（与 main.py 同目录）。
+# 可选：扩展「帮我打开…」白名单（与 main.py 同目录）。不配此文件也能用内置程序。
+#
+# 不需要写路径的情况：
+#   程序已在代码里内置（记事本、计算器、画图、资源管理器、设置、Edge、Chrome、Steam 等常见路径、
+#   命令提示符、PowerShell、任务管理器、截图工具等），会说「帮我打开记事本 / steam」即可。
+#
+# 需要写路径（或 别名=内置代号）的情况：
+#   - 想打开的程序不在内置列表里（例如微信、某个游戏启动器）→ 写 别名=C:\...\xxx.exe
+#   - 内置程序装在非常见目录（例如 Steam 不在默认盘）→ 写 steam=你的\steam.exe
+#
 # 每行一条，# 开头为注释。
 # 格式：别名=完整路径.exe   或   别名=内置代号
 # 内置代号：notepad calc mspaint explorer settings edge chrome steam cmd powershell taskmgr snippingtool

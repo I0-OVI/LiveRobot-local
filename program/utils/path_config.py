@@ -31,6 +31,11 @@ def get_main_dir():
     return os.path.dirname(current_dir)
 
 
+def get_open_app_allowlist_path() -> str:
+    """Path to open_app_allowlist.txt (optional launcher whitelist). Same directory as main.py."""
+    return os.path.join(get_main_dir(), "open_app_allowlist.txt")
+
+
 def get_project_root():
     """Get project root directory (LiveRobot-local root). Live2D folder is inside this directory."""
     current_dir = get_current_dir()  # .../LiveRobot-local/program/utils

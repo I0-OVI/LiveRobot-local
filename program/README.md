@@ -83,6 +83,21 @@ python main.py
 
 Memory (Replay + RAG): see `ai/memory/README.md` and `tools/README_RAG_tools.md`. Optional toggles live in `setup.txt` under **`RAG_OPTIONS`**.
 
+### Open app (keyword)
+
+Phrases like **「帮我打开记事本」**, **「帮我打开 steam」**, **「open notepad」** trigger a whitelist-only launcher (Windows). Built-in targets (notepad, calculator, paint, Explorer, Settings, Edge, Chrome, Steam with common install paths, cmd, PowerShell, Task Manager, Snipping Tool, etc.) **do not require** listing paths in any file.
+
+Use optional **`open_app_allowlist.txt`** (next to `main.py`) only to add **extra** apps by full path, or to **override** a path when auto-detection fails. See comments inside that file.
+
+To **search** for an installed `.exe` (PATH + Windows App Paths registry) and **append** a line to that file:
+
+```bash
+cd program
+python tools/app_path_lookup.py wechat
+python tools/app_path_lookup.py WeChat --write --alias 微信
+python tools/app_path_lookup.py steam --write --pick 2 --force
+```
+
 ## Module Dependencies
 
 - **core**: No external dependencies (pure Python)
