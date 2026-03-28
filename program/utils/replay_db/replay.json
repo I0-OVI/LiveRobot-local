@@ -167,10 +167,17 @@
       "assistant_response": "出门有点凉呢，披件外套就不错了，看你想不想晒太阳了",
       "timestamp": "2026-03-22T20:53:49.773387",
       "token_count": 51
+    },
+    {
+      "turn_id": 25,
+      "user_input": "中午好",
+      "assistant_response": "中午好啊 Carambola，太阳正晒得舒服，要不要出来透透气？别又窝着不动了。",
+      "timestamp": "2026-03-28T11:04:40.781241",
+      "token_count": 54
     }
   ],
-  "total_tokens": 1026,
+  "total_tokens": 1080,
   "max_turns": 50,
   "conversation_summary": "用户询问时间点及状态，表示无具体需求；讨论交流偏好与沟通方式；确认名称及母语均为中文；建议向用户提问其喜好。",
-  "updated_at": "2026-03-22T20:54:02.522951"
+  "updated_at": "2026-03-28T11:05:03.469159"
 }

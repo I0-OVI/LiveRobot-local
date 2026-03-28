@@ -17,7 +17,7 @@ import time
 import threading
 from enum import Enum
 from typing import Optional, Callable
-from queue import Queue
+from queue import Queue, Empty
 
 # Import path configuration utilities
 from utils.path_config import get_current_dir, get_model_paths
@@ -1187,17 +1187,22 @@ class AIAgent:
             thread_id = threading.current_thread().ident
             thread_name = threading.current_thread().name
             print(f"[Output Thread] Thread started: {thread_name} (ID: {thread_id})")
-            output_timeout = 0  # 输出超时计数器
-            max_timeout = 300  # 最大等待时间（30秒，0.1秒 * 300）
-            
+            # Wall-clock stall limit (large models can take minutes before first token).
+            # Old counter+sleep loop was ~15s for max_timeout=300, not 30s as the comment said.
+            try:
+                stall_limit_sec = float(os.environ.get("LIVEBOT_OUTPUT_STALL_SEC", "600"))
+            except ValueError:
+                stall_limit_sec = 600.0
+            last_activity = time.monotonic()
+
             try:
                 while self.is_outputting:
                     try:
                         # 从队列获取文本（短超时减少首字延迟）
                         try:
-                            msg_type, text = self.text_output_queue.get(timeout=0.03)
-                            output_timeout = 0  # 重置超时计数器
-                            
+                            msg_type, text = self.text_output_queue.get(timeout=0.05)
+                            last_activity = time.monotonic()
+
                             if msg_type == "partial":
                                 # 流式输出增量文本（追加模式，不清除旧字幕）
                                 self.current_output_text = text
@@ -1227,12 +1232,13 @@ class AIAgent:
                                 self._finish_output()
                                 return  # 确保退出循环
                             
-                        except:
-                            # 队列为空，继续等待
-                            output_timeout += 1
-                            if output_timeout >= max_timeout:
-                                # Timeout, force finish output
-                                print(f"[Output Thread] Timeout, forcing exit: {thread_name} (ID: {thread_id})")
+                        except Empty:
+                            # 队列为空：长推理（首 token）可能远超旧版 ~15s 计数超时
+                            if time.monotonic() - last_activity > stall_limit_sec:
+                                print(
+                                    f"[Output Thread] Stall timeout ({stall_limit_sec:.0f}s no queue activity), "
+                                    f"forcing exit: {thread_name} (ID: {thread_id})"
+                                )
                                 self._finish_output()
                                 return
                             time.sleep(0.02)  # 20ms poll for lower latency

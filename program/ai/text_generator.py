@@ -59,7 +59,91 @@ def _patch_bitsandbytes_params4bit_for_accelerate() -> None:
     P._livebot_new_patched = True
 
 
+def _patch_accelerate_execution_hook_for_bnb_meta() -> None:
+    """
+    accelerate.hooks.attach_execution_device_hook uses len(module.state_dict()) > 0.
+    For bitsandbytes Linear4bit during GPU/CPU dispatch, state_dict() can call
+    quant_state.as_dict() while tensors are still on meta, raising RuntimeError.
+    Fall back to counting parameters/buffers without building a full state_dict.
+    """
+    try:
+        import accelerate.hooks as acc_hooks
+    except ImportError:
+        return
+    if getattr(acc_hooks, "_livebot_exec_hook_meta_patch", False):
+        return
+
+    def _module_has_tensors(module: torch.nn.Module) -> bool:
+        try:
+            return len(module.state_dict()) > 0
+        except RuntimeError as e:
+            msg = str(e).lower()
+            if "meta" not in msg and "item()" not in msg:
+                raise
+            return any(True for _ in module.parameters(recurse=True)) or any(
+                True for _ in module.buffers(recurse=True)
+            )
+
+    _orig = acc_hooks.attach_execution_device_hook
+
+    def attach_execution_device_hook(
+        module,
+        execution_device,
+        skip_keys=None,
+        preload_module_classes=None,
+        tied_params_map=None,
+    ):
+        if not hasattr(module, "_hf_hook") and _module_has_tensors(module):
+            acc_hooks.add_hook_to_module(
+                module,
+                acc_hooks.AlignDevicesHook(
+                    execution_device, skip_keys=skip_keys, tied_params_map=tied_params_map
+                ),
+            )
+
+        if preload_module_classes is not None and module.__class__.__name__ in preload_module_classes:
+            return
+
+        for child in module.children():
+            attach_execution_device_hook(
+                child,
+                execution_device,
+                skip_keys=skip_keys,
+                preload_module_classes=preload_module_classes,
+                tied_params_map=tied_params_map,
+            )
+
+    acc_hooks.attach_execution_device_hook = attach_execution_device_hook  # type: ignore[assignment]
+    acc_hooks._livebot_exec_hook_meta_patch = True
+
+
+def _patch_accelerate_align_devices_hook_unwrap_forward() -> None:
+    """
+    AlignDevicesHook.pre_forward/post_forward are wrapped with torch.compiler.disable.
+    That path can interact badly with bitsandbytes Params4bit moves during offload.
+    Use the underlying callables (inspect.unwrap) so hooks stay eager.
+    """
+    try:
+        import inspect
+        import accelerate.hooks as acc_hooks
+    except ImportError:
+        return
+    if getattr(acc_hooks, "_livebot_align_hook_unwrap", False):
+        return
+    ah = acc_hooks.AlignDevicesHook
+    for name in ("pre_forward", "post_forward"):
+        raw = ah.__dict__.get(name)
+        if raw is None:
+            continue
+        inner = inspect.unwrap(raw)
+        if inner is not raw:
+            setattr(ah, name, inner)
+    acc_hooks._livebot_align_hook_unwrap = True
+
+
 _patch_bitsandbytes_params4bit_for_accelerate()
+_patch_accelerate_execution_hook_for_bnb_meta()
+_patch_accelerate_align_devices_hook_unwrap_forward()
 
 
 class ForbiddenWordsLogitsProcessor(LogitsProcessor):
@@ -185,21 +269,57 @@ class QwenTextGenerator:
         self.FORBIDDEN_WORDS_ZH = parse_forbidden_words_list(setup["FORBIDDEN_WORDS_ZH"]) if setup.get("FORBIDDEN_WORDS_ZH") else []
         self.FORBIDDEN_WORDS_EN = parse_forbidden_words_list(setup["FORBIDDEN_WORDS_EN"]) if setup.get("FORBIDDEN_WORDS_EN") else []
 
-        if self.use_quantization:
-            # Allow GPU+CPU (or disk) split when VRAM cannot hold the full 4-bit model; required by transformers bnb 4-bit.
-            self.quantization_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.float16,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-                llm_int8_enable_fp32_cpu_offload=True,
-            )
-        else:
-            self.quantization_config = None
-
         # Single worker + queue: all model.generate run on one thread (no cross-thread GPU calls)
         self._task_queue: queue.Queue = queue.Queue()
         self._inference_worker: Optional[threading.Thread] = None
+
+    @staticmethod
+    def _bnb_config(cpu_offload: bool) -> BitsAndBytesConfig:
+        return BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            llm_int8_enable_fp32_cpu_offload=cpu_offload,
+        )
+
+    def _load_quantized_model(self, use_local_only: bool) -> None:
+        """Prefer full GPU (device_map {0}); split + disk offload only if OOM or LIVEBOT_LLM_SPLIT=1."""
+        base_kw = dict(
+            cache_dir=self.cache_dir,
+            trust_remote_code=self.trust_remote_code,
+            local_files_only=use_local_only,
+        )
+        force_split = os.environ.get("LIVEBOT_LLM_SPLIT", "").strip().lower() in ("1", "true", "yes")
+        offload_dir = os.path.join(self.cache_dir or ".", "_hf_offload")
+        os.makedirs(offload_dir, exist_ok=True)
+
+        if not force_split and torch.cuda.is_available():
+            try:
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_name,
+                    quantization_config=self._bnb_config(cpu_offload=False),
+                    device_map={"": 0},
+                    **base_kw,
+                )
+                return
+            except Exception as e:
+                oom = isinstance(e, torch.cuda.OutOfMemoryError) or "out of memory" in str(e).lower()
+                if not oom:
+                    raise
+                torch.cuda.empty_cache()
+                print(
+                    "[Init] 4-bit model did not fit in GPU memory; retrying with auto device_map + offload "
+                    f"(offload dir: {offload_dir})"
+                )
+
+        self.model = AutoModelForCausalLM.from_pretrained(
+            self.model_name,
+            quantization_config=self._bnb_config(cpu_offload=True),
+            device_map="auto",
+            offload_folder=offload_dir,
+            **base_kw,
+        )
 
     def _start_inference_worker(self) -> None:
         if self.model is None:
@@ -581,14 +701,7 @@ class QwenTextGenerator:
             self._reset_forbidden_token_cache()
 
             if self.use_quantization:
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_name,
-                    cache_dir=self.cache_dir,
-                    quantization_config=self.quantization_config,
-                    device_map="auto",
-                    trust_remote_code=self.trust_remote_code,
-                    local_files_only=use_local_only,
-                )
+                self._load_quantized_model(use_local_only)
             else:
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_name,
