@@ -288,6 +288,7 @@ class QwenTextGenerator:
 
     def _load_quantized_model(self, use_local_only: bool) -> None:
         """Prefer full GPU (device_map {0}); split + disk offload only if OOM or LIVEBOT_LLM_SPLIT=1."""
+        src = self._pretrained_source_for_load(use_local_only)
         base_kw = dict(
             cache_dir=self.cache_dir,
             trust_remote_code=self.trust_remote_code,
@@ -301,7 +302,7 @@ class QwenTextGenerator:
             if not force_split and torch.cuda.is_available():
                 try:
                     self.model = AutoModelForCausalLM.from_pretrained(
-                        self.model_name,
+                        src,
                         device_map={"": 0},
                         **base_kw,
                     )
@@ -316,7 +317,7 @@ class QwenTextGenerator:
                         f"(offload dir: {offload_dir})"
                     )
             self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_name,
+                src,
                 device_map="auto",
                 offload_folder=offload_dir,
                 **base_kw,
@@ -326,7 +327,7 @@ class QwenTextGenerator:
         if not force_split and torch.cuda.is_available():
             try:
                 self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_name,
+                    src,
                     quantization_config=self._bnb_config(cpu_offload=False),
                     device_map={"": 0},
                     **base_kw,
@@ -343,7 +344,7 @@ class QwenTextGenerator:
                 )
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_name,
+            src,
             quantization_config=self._bnb_config(cpu_offload=True),
             device_map="auto",
             offload_folder=offload_dir,
@@ -487,6 +488,19 @@ class QwenTextGenerator:
         if not snapshots:
             return None
         return os.path.join(snapshots_path, snapshots[0])
+
+    def _pretrained_source_for_load(self, local_only: bool) -> str:
+        """
+        When the full snapshot is on disk, load from that path instead of the Hub repo id.
+        Transformers 4.x may call huggingface_hub.model_info(repo_id) for some tokenizers (e.g. Qwen2
+        mistral-regex patch); that ignores runtime HF_HUB_OFFLINE because hub offline is read at import time.
+        Passing a local directory avoids any Hub HTTP.
+        """
+        if local_only:
+            snap = self._get_snapshot_dir()
+            if snap and os.path.isdir(snap):
+                return os.path.abspath(snap)
+        return self.model_name
 
     @staticmethod
     def _snapshot_has_model_weights(snapshot_dir: str) -> bool:
@@ -729,13 +743,14 @@ class QwenTextGenerator:
         Some Qwen3.x hubs set tokenizer_class to TokenizersBackend, which AutoTokenizer
         cannot resolve. Fall back to tokenizer.json + PreTrainedTokenizerFast(tokenizer_object=...).
         """
+        src = self._pretrained_source_for_load(use_local_only)
         kwargs = dict(
             cache_dir=self.cache_dir,
             trust_remote_code=self.trust_remote_code,
             local_files_only=use_local_only,
         )
         try:
-            return AutoTokenizer.from_pretrained(self.model_name, **kwargs)
+            return AutoTokenizer.from_pretrained(src, **kwargs)
         except ValueError as e:
             err = str(e)
             if "TokenizersBackend" not in err and "TokenizersBackendFast" not in err:
@@ -761,8 +776,9 @@ class QwenTextGenerator:
                     print("[Init] LLM weights: Hub pre-quantized bnb 4-bit (checkpoint is already quantized)")
                 self._load_quantized_model(local_only)
             else:
+                src = self._pretrained_source_for_load(local_only)
                 self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_name,
+                    src,
                     cache_dir=self.cache_dir,
                     device_map="auto",
                     trust_remote_code=self.trust_remote_code,
