@@ -28,6 +28,23 @@ except ImportError:
     def local_time_short_for_tool() -> str:  # type: ignore
         return ""
 
+try:
+    from utils.open_app_registry import (
+        extract_open_app_target,
+        launch_open_app,
+        resolve_open_app,
+    )
+except ImportError:
+
+    def extract_open_app_target(text: str):  # type: ignore
+        return None
+
+    def resolve_open_app(phrase: str):  # type: ignore
+        return None
+
+    def launch_open_app(params):  # type: ignore
+        return (False, "open_app unavailable")
+
 logger = logging.getLogger(__name__)
 
 # Chinese phrases that indicate a real weather question (allow default city when no place named)
@@ -99,6 +116,11 @@ class ToolManager:
             r"\[工具:获取汇率\]\s*货币[:：]?\s*([^\]]+)",
             r"\[工具:获取汇率\]",
         ],
+        "open_app": [
+            r"\[TOOL:OPEN_APP\][^\]]*应用[:：]?\s*([^\]]+)",
+            r"\[tool:open_app\][^\]]*app[:：]?\s*([^\]]+)",
+            r"\[工具:打开程序\][^\]]*应用[:：]?\s*([^\]]+)",
+        ],
     }
 
     KEYWORD_TRIGGERS = {
@@ -125,6 +147,9 @@ class ToolManager:
             r"请求获取汇率.*?货币[:：]?\s*([^\s\n]+)",
             r"查询汇率.*?货币[:：]?\s*([^\s\n]+)",
         ],
+        # Keyword triggers for open_app are handled only via extract_open_app_target + whitelist
+        # (no broad regex here — avoids false positives).
+        "open_app": [],
     }
 
     CITY_PATTERNS = [
@@ -292,6 +317,14 @@ class ToolManager:
                     currency = ""
                 return ("exchange_rate", {"currency": currency})
 
+        for pattern in self._tool_patterns["open_app"]:
+            match = pattern.search(text)
+            if match:
+                raw = match.group(1).strip() if match.lastindex else ""
+                spec = resolve_open_app(raw) if raw else None
+                if spec:
+                    return ("open_app", spec)
+
         return None
 
     def detect_tool_call(self, text: str) -> Optional[Tuple[str, Dict[str, Any]]]:
@@ -332,6 +365,12 @@ class ToolManager:
                             pass
                     return ("exchange_rate", {"currency": currency or ""})
 
+            phrase = extract_open_app_target(text)
+            if phrase is not None:
+                spec = resolve_open_app(phrase)
+                if spec:
+                    return ("open_app", spec)
+
         return None
 
     def remove_tool_markers(self, text: str) -> str:
@@ -358,6 +397,9 @@ class ToolManager:
             return self._request_weather(params.get("city", ""))
         if tool_name == "exchange_rate":
             return self._request_exchange_rate(params.get("currency", ""))
+        if tool_name == "open_app":
+            ok, msg = launch_open_app(params)
+            return msg
         return f"Unknown tool: {tool_name}"
 
     def _get_time(self) -> str:

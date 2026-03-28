@@ -638,9 +638,12 @@ class QwenTextGenerator:
                     cache_dir=cache,
                     local_files_only=use_local_only,
                 )
-            except LocalEntryNotFoundError:
-                if not use_local_only:
-                    raise
+            except LocalEntryNotFoundError as e:
+                if use_local_only:
+                    raise RuntimeError(
+                        "Tokenizer files missing from local cache while offline/local-only is required. "
+                        "Run once online to finish the download, or fix the cache under your model directory."
+                    ) from e
                 tok_path = hf_hub_download(
                     repo_id=repo,
                     filename="tokenizer.json",
@@ -696,7 +699,7 @@ class QwenTextGenerator:
                     local_files_only=use_local_only,
                 )
         except LocalEntryNotFoundError:
-            if use_local_only:
+            if not use_local_only:
                 try:
                     tpl_path = hf_hub_download(
                         repo_id=repo,
@@ -748,6 +751,7 @@ class QwenTextGenerator:
         prev_hub_offline = os.environ.get("HF_HUB_OFFLINE")
         if use_local_only:
             os.environ["HF_HUB_OFFLINE"] = "1"
+            print("[Init] Local LLM cache complete — loading weights from disk only (no Hub download).")
 
         def _do_load(local_only: bool) -> None:
             self.tokenizer = self._load_tokenizer(local_only)
@@ -767,24 +771,7 @@ class QwenTextGenerator:
                 )
 
         try:
-            try:
-                _do_load(use_local_only)
-            except (OSError, RuntimeError) as e:
-                # Incomplete cache (e.g. only shard 1 of 2): retry online once.
-                err = str(e).lower()
-                if use_local_only and (
-                    "does not appear to have" in err
-                    or "localentrynotfound" in err.replace(" ", "")
-                    or "could not find" in err
-                ):
-                    print("[Init] Local cache incomplete or missing shards; fetching from Hugging Face...")
-                    if prev_hub_offline is None:
-                        os.environ.pop("HF_HUB_OFFLINE", None)
-                    else:
-                        os.environ["HF_HUB_OFFLINE"] = prev_hub_offline
-                    _do_load(False)
-                else:
-                    raise
+            _do_load(use_local_only)
 
             if self.model is not None:
                 self._fix_stream_generator_compatibility()

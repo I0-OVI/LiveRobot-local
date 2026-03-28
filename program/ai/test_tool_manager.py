@@ -4,6 +4,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 _PROGRAM_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROGRAM_ROOT) not in sys.path:
@@ -70,6 +71,27 @@ class TestToolManagerDetection(unittest.TestCase):
     def test_no_default_when_disabled(self):
         tm = ToolManager(enable_keyword_trigger=True, default_weather_city="")
         self.assertIsNone(tm.detect_tool_call("今天天气怎么样"))
+
+    def test_open_app_keyword_notepad(self):
+        r = self.tm.detect_tool_call("帮我打开记事本")
+        self.assertIsNotNone(r)
+        self.assertEqual(r[0], "open_app")
+        self.assertEqual(r[1].get("canonical"), "notepad")
+
+    def test_open_app_keyword_steam(self):
+        r = self.tm.detect_tool_call("帮我打开steam")
+        self.assertIsNotNone(r)
+        self.assertEqual(r[0], "open_app")
+        self.assertEqual(r[1].get("canonical"), "steam")
+
+    def test_open_app_unknown_no_tool(self):
+        self.assertIsNone(self.tm.detect_tool_call("帮我打开心扉"))
+        self.assertIsNone(self.tm.detect_tool_call("帮我打开QQ"))
+
+    @patch.object(_mod, "launch_open_app", return_value=(True, "已启动：notepad"))
+    def test_open_app_execute(self, _mock_launch):
+        msg = self.tm.execute_tool("open_app", {"canonical": "notepad"})
+        self.assertIn("已启动", msg)
 
 
 if __name__ == "__main__":

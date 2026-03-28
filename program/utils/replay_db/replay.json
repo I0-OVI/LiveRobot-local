@@ -2,70 +2,14 @@
   "turns": [
     {
       "turn_id": 1,
-      "user_input": "气温20°你让我多穿点 是想让我热死吗",
-      "assistant_response": "外面温度正好，出门走走挺合适的，别把自己冻着了。",
-      "timestamp": "2026-03-22T15:53:08.702332",
-      "token_count": 69
-    },
-    {
-      "turn_id": 2,
-      "user_input": "今天天气怎么样",
-      "assistant_response": "出门走走还行，不过记得带件薄外套，这温度变化快。",
-      "timestamp": "2026-03-22T15:54:10.744893",
-      "token_count": 50
-    },
-    {
-      "turn_id": 3,
-      "user_input": "今天天气怎么样",
-      "assistant_response": "挺适合出去转转的，就是有点凉，披个外套就完美了。",
-      "timestamp": "2026-03-22T15:54:23.039790",
-      "token_count": 47
-    },
-    {
-      "turn_id": 4,
-      "user_input": "今天天气怎么样",
-      "assistant_response": "出门有点凉呢，披件外套就不错了，看你想不想晒太阳了",
-      "timestamp": "2026-03-22T20:53:49.773387",
-      "token_count": 51
-    },
-    {
-      "turn_id": 5,
-      "user_input": "中午好",
-      "assistant_response": "中午好啊 Carambola，太阳正晒得舒服，要不要出来透透气？别又窝着不动了。",
-      "timestamp": "2026-03-28T11:04:40.781241",
-      "token_count": 54
-    },
-    {
-      "turn_id": 6,
-      "user_input": "中午好",
-      "assistant_response": "中午好呀，Carambola。大太阳底下待久了皮肤会黑的，还是乖乖回屋里吹空调吧，省得我担心你感冒。",
-      "timestamp": "2026-03-28T13:07:25.051080",
-      "token_count": 68
-    },
-    {
-      "turn_id": 7,
-      "user_input": "但是今天天气挺好的",
-      "assistant_response": "哼，嘴上说着喜欢阳光，身体却诚实地只想待在房间里刷手机。既然这么享受，那就在沙发上好好晒会儿吧，别真给爷找麻烦。",
-      "timestamp": "2026-03-28T13:07:47.012818",
-      "token_count": 100
-    },
-    {
-      "turn_id": 8,
-      "user_input": "？",
-      "assistant_response": "怎么一脸懵？我又没把你当傻子，只是怕你太闲了无聊而已！赶紧去把窗户打开透透气，不然空气都要闷死了！",
-      "timestamp": "2026-03-28T13:08:12.843561",
-      "token_count": 80
-    },
-    {
-      "turn_id": 9,
-      "user_input": "已经开了",
-      "assistant_response": "哟，算你识相！不过光开窗可不够，先把窗帘拉开让阳光洒进来才行，这才叫真正的“享受”。别以为我这是在命令你，我只是刚好路过你家窗边顺便提醒一下罢了！",
-      "timestamp": "2026-03-28T13:08:44.610166",
-      "token_count": 109
+      "user_input": "帮我打开steam",
+      "assistant_response": "未找到 Steam（常见路径未检测到）。可在 program/open_app_allowlist.txt 中添加：steam=C:\\你的路径\\steam.exe",
+      "timestamp": "2026-03-28T16:22:27.687414",
+      "token_count": 49
     }
   ],
-  "total_tokens": 628,
+  "total_tokens": 49,
   "max_turns": 50,
-  "conversation_summary": "连续四次请求“唐笑”，Rubus每次均回复笑脸。下午问候后闲聊无果，随后查询今日天气。Pootung局部多云，气温20°C。建议出门注意保暖，适合居家喝茶看书。",
-  "updated_at": "2026-03-28T14:18:52.741033"
+  "conversation_summary": "连续多次询问天气，Rubus反复强调需备外套防凉，并调侃用户想晒太阳又怕黑。虽已开窗，仍催促拉帘纳凉。最后请求启动 Steam，被嫌弃浪费精力但同意操作，警告勿熬夜留烂摊子。",
+  "updated_at": "2026-03-28T16:22:40.120999"
 }

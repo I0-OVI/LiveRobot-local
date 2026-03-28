@@ -1,0 +1,5 @@
+# 可选：自定义「打开程序」白名单（与 main.py 同目录）。
+# 每行一条，# 开头为注释。
+# 格式：别名=完整路径.exe   或   别名=内置代号
+# 内置代号：notepad calc mspaint explorer settings edge chrome steam cmd powershell taskmgr snippingtool
+# 多别名：微信|WeChat=C:\Path\WeChat.exe
