@@ -1,6 +1,9 @@
 """
 Qwen Instruct models, 4-bit loading via bitsandbytes when CUDA is available.
 Uses HuggingFace Transformers chat templates + generate; no legacy Qwen1 model.chat() / qwen_generation_utils.
+
+Optional KV cache compression (TurboQuant): set LIVEBOT_TURBOQUANT_BITS=4 (or 3) to reduce VRAM from
+long-context KV cache; requires the `turboquant` package (pip install turboquant).
 """
 import json
 import os
@@ -238,6 +241,7 @@ class QwenTextGenerator:
         cache_dir: Optional[str] = None,
         trust_remote_code: bool = False,
         hub_pre_quantized: bool = False,
+        turboquant_bits: Optional[int] = None,
     ):
         """
         Initialize Qwen text generator
@@ -247,11 +251,15 @@ class QwenTextGenerator:
             cache_dir: Model cache directory, if None uses default HuggingFace cache
             trust_remote_code: Passed to from_pretrained (some checkpoints need True)
             hub_pre_quantized: Hub repo ships bitsandbytes 4-bit weights; load without BitsAndBytesConfig.
+            turboquant_bits: If 3 or 4, use TurboQuant-compressed KV cache during generate (GPU only).
+                If None, reads env LIVEBOT_TURBOQUANT_BITS (same values; unset = disabled).
         """
         self.model_name = model_name
         self.cache_dir = cache_dir
         self.trust_remote_code = trust_remote_code
         self.hub_pre_quantized = hub_pre_quantized
+        self._turboquant_bits_override = turboquant_bits
+        self._turboquant_warned_missing: bool = False
         self.model = None
         self.tokenizer = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -549,6 +557,40 @@ class QwenTextGenerator:
             return int(self.tokenizer.pad_token_id)
         return int(self.tokenizer.eos_token_id)
 
+    def _effective_turboquant_bits(self) -> Optional[int]:
+        o = self._turboquant_bits_override
+        if o is not None:
+            return o if o in (3, 4) else None
+        raw = os.environ.get("LIVEBOT_TURBOQUANT_BITS", "").strip().lower()
+        if not raw or raw in ("0", "false", "off", "no"):
+            return None
+        if raw in ("3", "4"):
+            return int(raw)
+        return None
+
+    def _turboquant_generate_kwargs(self) -> dict:
+        """Extra model.generate kwargs when TurboQuant KV compression is active (CUDA + package)."""
+        bits = self._effective_turboquant_bits()
+        if bits is None:
+            return {}
+        if not torch.cuda.is_available():
+            return {}
+        if self.model is None:
+            return {}
+        if self._model_input_device().type != "cuda":
+            return {}
+        try:
+            from turboquant import TurboQuantCache
+        except ImportError:
+            if not self._turboquant_warned_missing:
+                print(
+                    "[LLM] TurboQuant requested (LIVEBOT_TURBOQUANT_BITS) but `turboquant` is not installed; "
+                    "KV cache unchanged. Install: pip install turboquant"
+                )
+                self._turboquant_warned_missing = True
+            return {}
+        return {"past_key_values": TurboQuantCache(bits=bits), "use_cache": True}
+
     def _messages_from_turns(
         self,
         user_input: str,
@@ -792,6 +834,25 @@ class QwenTextGenerator:
             if self.model is not None:
                 self._fix_stream_generator_compatibility()
                 self._start_inference_worker()
+                tq_bits = self._effective_turboquant_bits()
+                if tq_bits is not None:
+                    if not torch.cuda.is_available():
+                        print("[Init] TurboQuant skipped (no CUDA).")
+                    elif self._model_input_device().type != "cuda":
+                        print("[Init] TurboQuant skipped (model not on GPU).")
+                    else:
+                        try:
+                            import turboquant  # noqa: F401
+
+                            print(
+                                f"[Init] TurboQuant KV cache: {tq_bits}-bit "
+                                "(compresses KV; helps VRAM on long prompts / history)"
+                            )
+                        except ImportError:
+                            print(
+                                "[Init] TurboQuant requested but package missing — "
+                                "pip install turboquant"
+                            )
         except Exception as e:
             raise RuntimeError(f"Model loading failed: {e}")
         finally:
@@ -849,6 +910,7 @@ class QwenTextGenerator:
         }
         if logits_processor is not None:
             gen_kwargs["logits_processor"] = logits_processor
+        gen_kwargs.update(self._turboquant_generate_kwargs())
         with torch.inference_mode():
             output_ids = self.model.generate(**gen_kwargs)
         inp_len = inputs["input_ids"].shape[1]
@@ -924,6 +986,7 @@ class QwenTextGenerator:
         }
         if logits_processor is not None:
             gen_kwargs["logits_processor"] = logits_processor
+        gen_kwargs.update(self._turboquant_generate_kwargs())
 
         with torch.inference_mode():
             output_ids = self.model.generate(**gen_kwargs)
@@ -1034,6 +1097,7 @@ class QwenTextGenerator:
             logits_processor = self._create_logits_processor()
             if logits_processor is not None:
                 gen_kwargs["logits_processor"] = logits_processor
+            gen_kwargs.update(self._turboquant_generate_kwargs())
 
             generation_thread = Thread(target=self.model.generate, kwargs=gen_kwargs, daemon=True)
             generation_thread.start()
