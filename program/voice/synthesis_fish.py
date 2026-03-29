@@ -17,6 +17,8 @@ import tempfile
 import numpy as np
 from typing import Optional
 
+from .tts_text import strip_for_tts
+
 FISH_SPEECH_AVAILABLE = False
 torch = None
 tiktoken = None
@@ -181,6 +183,7 @@ class FishSpeechVoiceSynthesis:
         Args:
             text: Text to synthesize
         """
+        text = strip_for_tts(text)
         if not text or len(text.strip()) == 0:
             return
         

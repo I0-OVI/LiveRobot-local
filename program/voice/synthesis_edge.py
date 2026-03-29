@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Optional, Callable
 import io
 
+from .tts_text import strip_for_tts
+
 EDGE_TTS_AVAILABLE = False
 try:
     import edge_tts
@@ -95,6 +97,7 @@ class EdgeVoiceSynthesis:
         Args:
             text: Text to synthesize
         """
+        text = strip_for_tts(text)
         if not text or len(text.strip()) == 0:
             print("[Edge TTS] ⚠ Empty text, skipping synthesis")
             return
