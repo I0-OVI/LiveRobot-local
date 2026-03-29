@@ -16,5 +16,5 @@ huggingface_hub>=0.16.0
 chromadb>=0.4.0
 sentence-transformers>=2.2.0
 scikit-learn>=1.0.0
-# KV cache compression for long contexts (enable with LIVEBOT_TURBOQUANT_BITS=4)
+# KV cache compression (default on in QwenTextGenerator; LIVEBOT_TURBOQUANT_BITS=0 to disable)
 turboquant>=0.2.0

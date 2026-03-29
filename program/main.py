@@ -143,7 +143,7 @@ class AIAgent:
     
     def __init__(self, 
                  use_streaming: bool = True,
-                 llm_preset: str = "qwen2.5-7b",  # or qwen3.5-4b / qwen3.5-9b-text; see LLM_PRESETS
+                 llm_preset: str = "qwen2.5-7b",  # see LLM_PRESETS (e.g. qwen3-8b-bnb-4bit)
                  model_name: Optional[str] = None,
                  model_cache_dir: Optional[str] = None,
                  language: str = "zh-CN",
@@ -181,7 +181,7 @@ class AIAgent:
         
         Args:
             use_streaming: Whether to use streaming inference, default True
-            llm_preset: Built-in preset id: "qwen3.5-4b", "qwen2.5-7b", or "qwen3.5-9b-text" (ignored if model_name is set)
+            llm_preset: Built-in preset id from LLM_PRESETS (e.g. qwen3-8b-bnb-4bit); ignored if model_name is set
             model_name: Optional HuggingFace model id override (advanced)
             model_cache_dir: Optional cache directory override
             language: Default recognition language (zh-CN or en-US)
@@ -1994,6 +1994,10 @@ def _choose_llm_preset_dialog() -> str:
         "Qwen2.5-7B-Instruct（4bit，约 7B，均衡）\n"
         f"    {LLM_PRESETS['qwen2.5-7b']['label']}"
     )
+    rb_qwen3_8b = QRadioButton(
+        "Qwen3-8B Unsloth bnb-4bit（约 8B，dense Qwen3，HF 预量化权重）\n"
+        f"    {LLM_PRESETS['qwen3-8b-bnb-4bit']['label']}"
+    )
     rb_heavy = QRadioButton(
         "Qwen3.5-9B 纯文本（4bit，无视觉塔，显存占用最高）\n"
         f"    {LLM_PRESETS['qwen3.5-9b-text']['label']}"
@@ -2002,9 +2006,11 @@ def _choose_llm_preset_dialog() -> str:
     group = QButtonGroup(dlg)
     group.addButton(rb_4b)
     group.addButton(rb_light)
+    group.addButton(rb_qwen3_8b)
     group.addButton(rb_heavy)
     layout.addWidget(rb_4b)
     layout.addWidget(rb_light)
+    layout.addWidget(rb_qwen3_8b)
     layout.addWidget(rb_heavy)
 
     buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -2012,7 +2018,7 @@ def _choose_llm_preset_dialog() -> str:
     buttons.rejected.connect(dlg.reject)
     layout.addWidget(buttons)
     dlg.setLayout(layout)
-    dlg.resize(560, 280)
+    dlg.resize(580, 360)
 
     if dlg.exec_() != QDialog.Accepted:
         print("[LLM] 已取消 / Cancelled.")
@@ -2020,6 +2026,8 @@ def _choose_llm_preset_dialog() -> str:
 
     if rb_heavy.isChecked():
         return "qwen3.5-9b-text"
+    if rb_qwen3_8b.isChecked():
+        return "qwen3-8b-bnb-4bit"
     if rb_light.isChecked():
         return "qwen2.5-7b"
     return "qwen3.5-4b"
@@ -2028,20 +2036,27 @@ def _choose_llm_preset_dialog() -> str:
 def _resolve_llm_preset_startup() -> str:
     """
     Default: GUI dialog to choose model.
-    Override: --llm qwen2.5-7b | qwen3.5-9b-text (skip dialog), or LIVEBOT_LLM with same ids.
+    Override: --llm <preset> (skip dialog), or LIVEBOT_LLM with same preset ids.
     Fallback without PyQt: --llm ask uses stdin; otherwise qwen2.5-7b.
     """
     import argparse
 
     env = (os.environ.get("LIVEBOT_LLM") or "").strip().lower()
     default_mode = "gui"
-    if env in ("qwen2.5-7b", "qwen3.5-4b", "qwen3.5-9b-text"):
+    if env in ("qwen2.5-7b", "qwen3.5-4b", "qwen3.5-9b-text", "qwen3-8b-bnb-4bit"):
         default_mode = env
 
     parser = argparse.ArgumentParser(description="LiveRobot AI Agent")
     parser.add_argument(
         "--llm",
-        choices=["gui", "qwen2.5-7b", "qwen3.5-4b", "qwen3.5-9b-text", "ask"],
+        choices=[
+            "gui",
+            "qwen2.5-7b",
+            "qwen3.5-4b",
+            "qwen3.5-9b-text",
+            "qwen3-8b-bnb-4bit",
+            "ask",
+        ],
         default=default_mode,
         help="gui=弹窗选择 (默认); 或直接指定模型; ask=无界面时终端选择",
     )
@@ -2053,17 +2068,22 @@ def _resolve_llm_preset_startup() -> str:
         return "qwen3.5-4b"
     if args.llm == "qwen3.5-9b-text":
         return "qwen3.5-9b-text"
+    if args.llm == "qwen3-8b-bnb-4bit":
+        return "qwen3-8b-bnb-4bit"
 
     if args.llm == "ask":
         if sys.stdin.isatty():
             print("\n[LLM] Select chat model:")
             print("  1) Qwen3.5-4B (lighter VRAM)")
             print("  2) Qwen2.5-7B-Instruct")
-            print("  3) Qwen3.5-9B text-only")
-            c = input("Enter 1, 2 or 3 [default 1]: ").strip() or "1"
+            print("  3) Qwen3-8B Unsloth bnb-4bit")
+            print("  4) Qwen3.5-9B text-only")
+            c = input("Enter 1, 2, 3 or 4 [default 1]: ").strip() or "1"
             if c == "2":
                 return "qwen2.5-7b"
             if c == "3":
+                return "qwen3-8b-bnb-4bit"
+            if c == "4":
                 return "qwen3.5-9b-text"
             return "qwen3.5-4b"
         print("[LLM] stdin is not a TTY; using qwen2.5-7b.")
@@ -2073,7 +2093,7 @@ def _resolve_llm_preset_startup() -> str:
     if PYQT5_AVAILABLE:
         return _choose_llm_preset_dialog()
     print(
-        "[LLM] PyQt5 不可用，无法显示选择窗口。请使用: python main.py --llm qwen3.5-4b | qwen2.5-7b | qwen3.5-9b-text"
+        "[LLM] PyQt5 不可用，无法显示选择窗口。请使用: python main.py --llm <preset>（见 LLM_PRESETS）"
     )
     return "qwen2.5-7b"
 

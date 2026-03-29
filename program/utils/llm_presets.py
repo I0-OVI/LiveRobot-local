@@ -19,6 +19,13 @@ LLM_PRESETS: Dict[str, Dict[str, Any]] = {
         "cache_subdir": "qwen2.5-7b-instruct",
         "trust_remote_code": False,
     },
+    "qwen3-8b-bnb-4bit": {
+        "label": "Unsloth Qwen3-8B bnb-4bit (Hub pre-quantized ~8B)",
+        "model_name": "unsloth/Qwen3-8B-bnb-4bit",
+        "cache_subdir": "unsloth-qwen3-8b-bnb-4bit",
+        "trust_remote_code": True,
+        "hub_pre_quantized": True,
+    },
     "qwen3.5-9b-text": {
         "label": "Qwen3.5-9B text-only (4-bit, ~9B; no vision tower)",
         "model_name": "principled-intelligence/Qwen3.5-9B-text-only",

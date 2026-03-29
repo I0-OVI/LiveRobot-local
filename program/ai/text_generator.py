@@ -2,8 +2,9 @@
 Qwen Instruct models, 4-bit loading via bitsandbytes when CUDA is available.
 Uses HuggingFace Transformers chat templates + generate; no legacy Qwen1 model.chat() / qwen_generation_utils.
 
-Optional KV cache compression (TurboQuant): set LIVEBOT_TURBOQUANT_BITS=4 (or 3) to reduce VRAM from
-long-context KV cache; requires the `turboquant` package (pip install turboquant).
+TurboQuant KV cache compression defaults to 4-bit on CUDA when compatible (HF DynamicCache).
+Not compatible with Qwen3.5-style hybrid models (custom KV cache). Disable with LIVEBOT_TURBOQUANT_BITS=0.
+Requires `turboquant` (pip install turboquant).
 """
 import json
 import os
@@ -251,8 +252,8 @@ class QwenTextGenerator:
             cache_dir: Model cache directory, if None uses default HuggingFace cache
             trust_remote_code: Passed to from_pretrained (some checkpoints need True)
             hub_pre_quantized: Hub repo ships bitsandbytes 4-bit weights; load without BitsAndBytesConfig.
-            turboquant_bits: If 3 or 4, use TurboQuant-compressed KV cache during generate (GPU only).
-                If None, reads env LIVEBOT_TURBOQUANT_BITS (same values; unset = disabled).
+            turboquant_bits: 0 = off; 3 or 4 = TurboQuant KV bits. If None, uses env LIVEBOT_TURBOQUANT_BITS
+                (default when unset: 4 on GPU; set to 0/off to disable).
         """
         self.model_name = model_name
         self.cache_dir = cache_dir
@@ -560,18 +561,59 @@ class QwenTextGenerator:
     def _effective_turboquant_bits(self) -> Optional[int]:
         o = self._turboquant_bits_override
         if o is not None:
+            if o == 0:
+                return None
             return o if o in (3, 4) else None
         raw = os.environ.get("LIVEBOT_TURBOQUANT_BITS", "").strip().lower()
-        if not raw or raw in ("0", "false", "off", "no"):
+        if raw in ("0", "false", "off", "no"):
             return None
         if raw in ("3", "4"):
             return int(raw)
-        return None
+        if raw:
+            return None
+        return 4
+
+    def _turboquant_compatible_with_model(self) -> bool:
+        """
+        TurboQuant implements HF DynamicCache. Architectures like Qwen3.5 use a custom cache
+        (linear + full attention, has_previous_state, etc.) and cannot use TurboQuant.
+        """
+        if self.model is None:
+            return False
+        cfg = getattr(self.model, "config", None)
+        if cfg is None:
+            return True
+        blocked = frozenset(
+            (
+                "qwen3_5",
+                "qwen3_5_text",
+                "qwen3_next",
+                "qwen3_moe",
+                "qwen3_5_moe",
+            )
+        )
+
+        def mt(c) -> Optional[str]:
+            if c is None:
+                return None
+            return getattr(c, "model_type", None)
+
+        if mt(cfg) in blocked:
+            return False
+        tc = getattr(cfg, "text_config", None)
+        if mt(tc) in blocked:
+            return False
+        name = type(self.model).__name__
+        if "Qwen3_5" in name or "Qwen3Next" in name:
+            return False
+        return True
 
     def _turboquant_generate_kwargs(self) -> dict:
         """Extra model.generate kwargs when TurboQuant KV compression is active (CUDA + package)."""
         bits = self._effective_turboquant_bits()
         if bits is None:
+            return {}
+        if not self._turboquant_compatible_with_model():
             return {}
         if not torch.cuda.is_available():
             return {}
@@ -584,8 +626,8 @@ class QwenTextGenerator:
         except ImportError:
             if not self._turboquant_warned_missing:
                 print(
-                    "[LLM] TurboQuant requested (LIVEBOT_TURBOQUANT_BITS) but `turboquant` is not installed; "
-                    "KV cache unchanged. Install: pip install turboquant"
+                    "[LLM] TurboQuant is on by default but `turboquant` is not installed; "
+                    "KV cache unchanged. Install: pip install turboquant (or set LIVEBOT_TURBOQUANT_BITS=0 to silence)"
                 )
                 self._turboquant_warned_missing = True
             return {}
@@ -836,7 +878,12 @@ class QwenTextGenerator:
                 self._start_inference_worker()
                 tq_bits = self._effective_turboquant_bits()
                 if tq_bits is not None:
-                    if not torch.cuda.is_available():
+                    if not self._turboquant_compatible_with_model():
+                        print(
+                            "[Init] TurboQuant skipped (incompatible: Qwen3.5-style hybrid uses its own KV cache, "
+                            "not HF DynamicCache; use Qwen2.5-class models for TurboQuant KV savings)"
+                        )
+                    elif not torch.cuda.is_available():
                         print("[Init] TurboQuant skipped (no CUDA).")
                     elif self._model_input_device().type != "cuda":
                         print("[Init] TurboQuant skipped (model not on GPU).")
@@ -850,8 +897,8 @@ class QwenTextGenerator:
                             )
                         except ImportError:
                             print(
-                                "[Init] TurboQuant requested but package missing — "
-                                "pip install turboquant"
+                                "[Init] TurboQuant on by default but package missing — "
+                                "pip install turboquant (or LIVEBOT_TURBOQUANT_BITS=0 to disable)"
                             )
         except Exception as e:
             raise RuntimeError(f"Model loading failed: {e}")
