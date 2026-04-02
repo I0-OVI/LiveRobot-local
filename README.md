@@ -1,7 +1,7 @@
 # Live Robot Design
 
 This repository provides a simple and practical workflow for building a local Live2D-based AI desktop robot.
-If you want to quickly try it out, just clone this repository, install the dependency and run main_live2D.py.
+If you want to quickly try it out, just clone this repository, install the dependency and run main_live2D.py. On **macOS**, use the [`program_mac/`](program_mac/) tree (same features, adapted for Finder / `.app` launch and MPS); on **Windows**, use [`program/`](program/).
 
 |Features                                       |Status|
 |-----------------------------------------------|------|

@@ -35,6 +35,7 @@ ENV/
 
 # Model files (too large for Git)
 program/utils/models/
+program_mac/utils/models/
 *.safetensors
 *.bin
 *.pt
@@ -68,3 +69,5 @@ logs/
 # Local / user-specific config (do not commit)
 program/setup.txt
 program/open_app_allowlist.txt
+program_mac/setup.txt
+program_mac/open_app_allowlist.txt
